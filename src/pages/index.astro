@@ -68,7 +68,7 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
           return (
             <>
               {dateLabel && <div class="match-date-label">{dateLabel}</div>}
-              <div class={`match-card ${groupClass} clickable`} data-match-id={match.id} onclick={`openMatch(${match.id})`}>
+              <div class={`match-card ${groupClass} clickable`} data-match-id={match.id} data-match={JSON.stringify({home: match.homeTeam, away: match.awayTeam, homeScore: match.homeScore, awayScore: match.awayScore, group: match.group, date: match.date, venue: match.venue})} onclick={`openMatch(${match.id})`}>
                 <div class="match-group-badge" style={`color: ${GROUP_COLORS[match.group] || '#888'}`}>
                   Group {match.group}
                 </div>
@@ -574,6 +574,15 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
   <script is:inline>
     const FLAGS = {"Mexico":"🇲🇽","Korea Republic":"🇰🇷","Czechia":"🇨🇿","South Africa":"🇿🇦","Bosnia & Herzegovina":"🇧🇦","Canada":"🇨🇦","Qatar":"🇶🇦","Switzerland":"🇨🇭","Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Brazil":"🇧🇷","Morocco":"🇲🇦","Haiti":"🇭🇹","United States":"🇺🇸","Australia":"🇦🇺","Türkiye":"🇹🇷","Paraguay":"🇵🇾","Germany":"🇩🇪","Curaçao":"🇨🇼","Côte d'Ivoire":"🇨🇮","Ecuador":"🇪🇨","Netherlands":"🇳🇱","Japan":"🇯🇵","Sweden":"🇸🇪","Tunisia":"🇹🇳","Belgium":"🇧🇪","Egypt":"🇪🇬","IR Iran":"🇮🇷","New Zealand":"🇳🇿","Spain":"🇪🇸","Cabo Verde":"🇨🇻","Saudi Arabia":"🇸🇦","Uruguay":"🇺🇾","France":"🇫🇷","Senegal":"🇸🇳","Iraq":"🇮🇶","Norway":"🇳🇴","Argentina":"🇦🇷","Algeria":"🇩🇿","Austria":"🇦🇹","Jordan":"🇯🇴","Portugal":"🇵🇹","Congo DR":"🇨🇩","Uzbekistan":"🇺🇿","Colombia":"🇨🇴","England":"🇬🇧","Croatia":"🇭🇷","Ghana":"🇬🇭","Panama":"🇵🇦"};
 
+    function getFlag(name) {
+      if (!name) return '🏳️';
+      if (FLAGS[name]) return FLAGS[name];
+      for (const [k,v] of Object.entries(FLAGS)) {
+        if (name.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(name.toLowerCase())) return v;
+      }
+      return '🏳️';
+    }
+
     function openMatch(id) {
       const modal = document.getElementById('matchModal');
       const body = document.getElementById('modalBody');
@@ -581,14 +590,18 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
       document.body.style.overflow = 'hidden';
       body.innerHTML = '<div class="loading"><span class="pulse-dot"></span> Loading match details...</div>';
 
+      // Get match info from the card
+      const card = document.querySelector(`[data-match-id="${id}"]`);
+      const matchInfo = card ? JSON.parse(card.dataset.match || '{}') : {};
+
       fetch(`/api/match/${id}`)
         .then(r => r.json())
-        .then(data => {
-          if (data.error) { body.innerHTML = '<p>Match details not available.</p>'; return; }
-          body.innerHTML = renderMatchDetail(data);
+        .then(detail => {
+          if (detail.error) { body.innerHTML = '<p style="padding:2rem;color:var(--text-muted)">Match details not available yet.</p>'; return; }
+          body.innerHTML = renderMatchDetail(matchInfo, detail);
           setupTabs();
         })
-        .catch(() => { body.innerHTML = '<p>Failed to load match details.</p>'; });
+        .catch(() => { body.innerHTML = '<p style="padding:2rem;color:var(--text-muted)">Failed to load match details.</p>'; });
     }
 
     function closeMatch() {
@@ -598,60 +611,65 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
 
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMatch(); });
 
-    function renderMatchDetail(d) {
-      const hf = FLAGS[d.home] || '🏳️';
-      const af = FLAGS[d.away] || '🏳️';
+    function renderMatchDetail(info, d) {
+      const homeName = info.home || 'Home';
+      const awayName = info.away || 'Away';
+      const homeScore = info.homeScore ?? '?';
+      const awayScore = info.awayScore ?? '?';
+      const hf = getFlag(homeName);
+      const af = getFlag(awayName);
+
       let html = `
         <div class="modal-header">
-          <div class="modal-group">Group ${d.group} · ${d.date || ''}</div>
+          <div class="modal-group">${info.group ? 'Group ' + info.group : ''} ${info.date ? '· ' + info.date : ''} ${info.statusDetail ? '· ' + info.statusDetail : ''}</div>
           <div class="modal-score-row">
             <div class="modal-team-block">
               <div class="modal-team-flag">${hf}</div>
-              <div class="modal-team-name">${d.home}</div>
+              <div class="modal-team-name">${homeName}</div>
             </div>
-            <div class="modal-score">${d.homeScore ?? '?'} — ${d.awayScore ?? '?'}</div>
+            <div class="modal-score">${homeScore} — ${awayScore}</div>
             <div class="modal-team-block">
               <div class="modal-team-flag">${af}</div>
-              <div class="modal-team-name">${d.away}</div>
+              <div class="modal-team-name">${awayName}</div>
             </div>
           </div>
-          ${d.venue ? `<div class="modal-venue">📍 ${d.venue}</div>` : ''}
+          ${info.venue ? `<div class="modal-venue">📍 ${info.venue}</div>` : ''}
         </div>`;
 
-      if (d.events || d.lineup || d.stats) {
+      const hasEvents = d.events?.length > 0;
+      const hasLineups = d.lineups?.length > 0;
+      const hasStats = d.stats?.length > 0;
+
+      if (hasEvents || hasLineups || hasStats) {
         html += `<div class="modal-tabs">
-          ${d.events ? '<button class="modal-tab active" data-tab="events">Events</button>' : ''}
-          ${d.lineup ? '<button class="modal-tab" data-tab="lineup">Lineups</button>' : ''}
-          ${d.stats ? '<button class="modal-tab" data-tab="stats">Stats</button>' : ''}
+          ${hasEvents ? '<button class="modal-tab active" data-tab="events">⚽ Events</button>' : ''}
+          ${hasLineups ? '<button class="modal-tab' + (!hasEvents ? ' active' : '') + '" data-tab="lineup">👥 Lineups</button>' : ''}
+          ${hasStats ? '<button class="modal-tab' + (!hasEvents && !hasLineups ? ' active' : '') + '" data-tab="stats">📊 Stats</button>' : ''}
         </div>`;
 
-        if (d.events) html += renderEvents(d.events, d.home, d.away);
-        if (d.lineup) html += renderLineup(d.lineup, d.home, d.away);
-        if (d.stats) html += renderStats(d.stats, d.home, d.away);
+        if (hasEvents) html += renderEvents(d.events);
+        if (hasLineups) html += renderLineups(d.lineups);
+        if (hasStats) html += renderStats(d.stats);
+      } else {
+        html += '<p style="text-align:center;color:var(--text-muted);padding:2rem;">No detailed data available yet. Check back during or after the match.</p>';
       }
       return html;
     }
 
-    function renderEvents(events, home, away) {
+    function renderEvents(events) {
       let html = '<div class="tab-panel active" id="tab-events"><div class="event-list">';
-      const sorted = [...events].sort((a, b) => {
-        const t = s => parseInt(s) + (s.includes('+') ? 0.5 : 0);
-        return t(a.time) - t(b.time);
-      });
-      for (const e of sorted) {
-        const isHome = e.team === 'home';
-        const cls = isHome ? 'event-home' : 'event-away';
+      for (const e of events) {
         let icon = '⚽';
-        if (e.type === 'card') icon = e.detail?.includes('Red') ? '🟥' : '🟨';
+        if (e.type === 'card') icon = (e.detail || '').toLowerCase().includes('red') ? '🟥' : '🟨';
         if (e.type === 'subst') icon = '🔄';
-        html += `<div class="event-row ${cls}">
-          <span class="event-time">${e.time}</span>
+        const teamFlag = getFlag(e.team);
+        html += `<div class="event-row">
+          <span class="event-time">${e.time || ''}</span>
           <span class="event-icon">${icon}</span>
           <div class="event-detail">
-            <div class="event-player">${e.player}</div>
-            ${e.assist ? `<div class="event-assist">${e.type === 'subst' ? '↔' : '🅰️'} ${e.assist}</div>` : ''}
-            ${e.detail && e.type !== 'goal' ? `<div class="event-desc">${e.detail}</div>` : ''}
-            ${e.detail && e.type === 'goal' ? `<div class="event-desc">${e.detail}</div>` : ''}
+            <div class="event-player">${teamFlag} ${e.player}</div>
+            ${e.assist ? `<div class="event-assist">🅰️ ${e.assist}</div>` : ''}
+            ${e.detail ? `<div class="event-desc">${e.detail}</div>` : ''}
           </div>
         </div>`;
       }
@@ -659,17 +677,13 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
       return html;
     }
 
-    function renderLineup(lineup, homeTeam, awayTeam) {
-      let html = '<div class="tab-panel" id="tab-lineup">';
-      for (const side of ['home', 'away']) {
-        const l = lineup[side];
-        if (!l) continue;
-        const teamName = side === 'home' ? homeTeam : awayTeam;
+    function renderLineups(lineups) {
+      let html = '<div class="tab-panel' + (document.querySelector('.modal-tab.active')?.dataset.tab === 'lineup' || !document.querySelector('.modal-tab.active') ? ' active' : '') + '" id="tab-lineup">';
+      for (const l of lineups) {
         html += `<div class="lineup-section">
           <div class="lineup-team-header">
-            <span class="lineup-team-name">${FLAGS[teamName] || '🏳️'} ${teamName}</span>
+            <span class="lineup-team-name">${getFlag(l.team)} ${l.team || l.teamAbbr}</span>
             <span class="lineup-formation">${l.formation || ''}</span>
-            <span class="lineup-coach">👤 ${l.coach || ''}</span>
           </div>
           <div class="lineup-grid">`;
         for (const p of (l.xi || [])) {
@@ -693,33 +707,31 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
       return html;
     }
 
-    function renderStats(stats, home, away) {
-      const rows = [
-        ['Possession', 'posession', '%'],
-        ['Shots', 'shots', ''],
-        ['Shots on Target', 'shotsOnTarget', ''],
-        ['Corners', 'corners', ''],
-        ['Fouls', 'fouls', ''],
-        ['Offsides', 'offsides', ''],
-        ['Passes', 'passes', ''],
-        ['Pass Accuracy', 'passAccuracy', '%'],
-      ];
+    function renderStats(statsArr) {
+      if (!statsArr || statsArr.length < 2) return '';
+      const s0 = statsArr[0].stats || {};
+      const s1 = statsArr[1].stats || {};
+      const name0 = statsArr[0].team || 'Home';
+      const name1 = statsArr[1].team || 'Away';
+
+      const keys = Object.keys(s0);
       let html = '<div class="tab-panel" id="tab-stats"><div class="stats-grid">';
-      for (const [label, key, suffix] of rows) {
-        const hv = stats.home?.[key] ?? 0;
-        const av = stats.away?.[key] ?? 0;
-        const total = hv + av || 1;
-        const hp = Math.round((hv / total) * 100);
-        const ap = 100 - hp;
+      for (const key of keys) {
+        const v0 = parseFloat(s0[key]) || 0;
+        const v1 = parseFloat(s1[key]) || 0;
+        const total = v0 + v1 || 1;
+        const p0 = Math.round((v0 / total) * 100);
+        const p1 = 100 - p0;
+        const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
         html += `
-          <div class="stat-name">${label}</div>
+          <div class="stat-name">${name0} — ${label} — ${name1}</div>
           <div class="stat-row">
-            <span class="stat-val left">${hv}${suffix}</span>
+            <span class="stat-val left">${s0[key]}</span>
             <div class="stat-bar-container">
-              <div class="stat-bar-left" style="width:${hp}%"></div>
-              <div class="stat-bar-right" style="width:${ap}%"></div>
+              <div class="stat-bar-left" style="width:${p0}%"></div>
+              <div class="stat-bar-right" style="width:${p1}%"></div>
             </div>
-            <span class="stat-val right">${av}${suffix}</span>
+            <span class="stat-val right">${s1[key]}</span>
           </div>`;
       }
       html += '</div></div>';
@@ -732,7 +744,8 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
           document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
           document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
           tab.classList.add('active');
-          document.getElementById('tab-' + tab.dataset.tab)?.classList.add('active');
+          const panel = document.getElementById('tab-' + tab.dataset.tab);
+          if (panel) panel.classList.add('active');
         });
       });
     }
