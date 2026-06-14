@@ -1,0 +1,22 @@
+{
+	auto_https off
+}
+
+:80 {
+	reverse_proxy localhost:4321
+	encode gzip
+}
+
+:443 {
+	tls /opt/data/wc-app/certs/cert.pem /opt/data/wc-app/certs/key.pem
+
+	reverse_proxy localhost:4321
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+}
