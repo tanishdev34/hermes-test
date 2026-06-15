@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
@@ -13,13 +14,13 @@ const PORT = process.env.PORT || 3200;
 
 // Upstash Redis
 const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL || 'https://REDACTED_REDIS',
-  token: process.env.UPSTASH_REDIS_REST_TOKEN || 'REDACTED_TOKEN',
+  url: process.env.UPSTASH_REDIS_REST_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN,
 });
 
 // PostgreSQL
 const db = new pg.Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://REDACTED:REDACTED@ep-misty-sun-airugutg-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require',
+  connectionString: process.env.DATABASE_URL,,
   max: 5,
   ssl: { rejectUnauthorized: false },
 });
