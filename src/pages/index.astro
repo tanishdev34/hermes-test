@@ -599,7 +599,7 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
         }
         container.innerHTML = html;
 
-        // Update stats
+        // Update stats in header only
         const live = matches.filter(m => m.status === 'live').length;
         const finished = matches.filter(m => m.status === 'finished').length;
         const goals = matches.reduce((sum, m) => sum + (m.home.score || 0) + (m.away.score || 0), 0);
@@ -607,11 +607,11 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
         matches.forEach(m => { teams.add(m.home.name); teams.add(m.away.name); });
         const upcoming = matches.filter(m => m.status === 'upcoming').length;
 
-        const statNums = document.querySelectorAll('.stat-number');
-        if (statNums[0]) statNums[0].textContent = finished;
-        if (statNums[1]) statNums[1].textContent = goals;
-        if (statNums[2]) statNums[2].textContent = teams.size;
-        if (statNums[3]) statNums[3].textContent = live + upcoming;
+        const statCards = document.querySelectorAll('.stats-row .stat-card .stat-number');
+        if (statCards[0]) statCards[0].textContent = finished;
+        if (statCards[1]) statCards[1].textContent = goals;
+        if (statCards[2]) statCards[2].textContent = teams.size;
+        if (statCards[3]) statCards[3].textContent = live + upcoming;
       } catch (e) {
         container.innerHTML = '<p style="color:var(--text-muted)">Failed to load matches.</p>';
       }
