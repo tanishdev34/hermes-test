@@ -24,19 +24,19 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
 
     <div class="stats-row">
       <div class="stat-card">
-        <div class="stat-number">{tournamentStats.gamesPlayed}</div>
+        <div class="stat-number" id="stat-games">7</div>
         <div class="stat-label">Games Played</div>
       </div>
       <div class="stat-card">
-        <div class="stat-number">{tournamentStats.goalsScored}</div>
+        <div class="stat-number" id="stat-goals">17</div>
         <div class="stat-label">Goals Scored</div>
       </div>
       <div class="stat-card">
-        <div class="stat-number">{tournamentStats.teamsInPlay}</div>
+        <div class="stat-number" id="stat-teams">14</div>
         <div class="stat-label">Teams in Play</div>
       </div>
       <div class="stat-card">
-        <div class="stat-number">{tournamentStats.fixturesNext}</div>
+        <div class="stat-number" id="stat-fixtures">4</div>
         <div class="stat-label">Fixtures Next</div>
       </div>
     </div>
@@ -587,11 +587,11 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
         const allTeams = new Set();
         matches.forEach(m => { allTeams.add(m.home.name); allTeams.add(m.away.name); });
 
-        const statCards = document.querySelectorAll('.stats-row .stat-card .stat-number');
-        if (statCards[0]) statCards[0].textContent = finished.length;
-        if (statCards[1]) statCards[1].textContent = goals;
-        if (statCards[2]) statCards[2].textContent = allTeams.size;
-        if (statCards[3]) statCards[3].textContent = live.length + upcoming.length;
+        const el = id => document.getElementById(id);
+        if (el('stat-games')) el('stat-games').textContent = finished.length;
+        if (el('stat-goals')) el('stat-goals').textContent = goals;
+        if (el('stat-teams')) el('stat-teams').textContent = allTeams.size;
+        if (el('stat-fixtures')) el('stat-fixtures').textContent = live.length + upcoming.length;
       } catch (e) {
         container.innerHTML = '<p style="color:var(--text-muted)">Failed to load matches.</p>';
       }
