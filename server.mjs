@@ -20,7 +20,7 @@ const redis = new Redis({
 
 // PostgreSQL
 const db = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,,
+  connectionString: process.env.DATABASE_URL,
   max: 5,
   ssl: { rejectUnauthorized: false },
 });
