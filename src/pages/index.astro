@@ -217,7 +217,7 @@ import Layout from '../layouts/Layout.astro';
     async function loadF1() {
       const container = document.getElementById('f1Content');
       try {
-        const res = await fetch('/api/f1/season/2025');
+        const res = await fetch('/api/f1/season/2026');
         const data = await res.json();
         if (data.error) { container.innerHTML = `<p style="color:var(--text-muted)">${data.error}</p>`; return; }
         let html = '<div class="f1-grid">';
