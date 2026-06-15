@@ -5,6 +5,7 @@ import { readFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { Redis } from '@upstash/redis';
+import pg from 'pg';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, 'dist');
@@ -16,16 +17,41 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN || 'REDACTED_TOKEN',
 });
 
-// ESPN API (free, no auth)
+// PostgreSQL
+const db = new pg.Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://REDACTED:REDACTED@ep-misty-sun-airugutg-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require',
+  max: 5,
+  ssl: { rejectUnauthorized: false },
+});
+
+// Init DB table
+async function initDB() {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS match_details (
+        match_id TEXT PRIMARY KEY,
+        events JSONB DEFAULT '[]',
+        lineups JSONB DEFAULT '[]',
+        stats JSONB DEFAULT '[]',
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    console.log('🗄️  PostgreSQL: connected, table ready');
+  } catch (e) {
+    console.error('PostgreSQL init error:', e.message);
+  }
+}
+initDB();
+
+// ESPN API
 const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world';
 
-// Smart cache TTLs
+// Cache TTLs
 const TTL = {
-  LIVE: 30,           // 30s for live matches
-  FINISHED: 6 * 3600, // 6h for completed
-  SCHEDULED: 3 * 3600, // 3h for upcoming
+  LIVE: 30,
+  FINISHED: 6 * 3600,
+  SCHEDULED: 3 * 3600,
   STANDINGS: 6 * 3600,
-  MATCH_DETAIL: 3 * 3600,
 };
 
 async function redisGet(key) {
@@ -46,25 +72,24 @@ async function espnFetch(path) {
   }
 }
 
-// Convert ESPN event to our format
 function mapEvent(e) {
   const comp = e.competitions?.[0] || {};
   const teams = comp.competitors || [];
   const home = teams.find(t => t.homeAway === 'home') || {};
   const away = teams.find(t => t.homeAway === 'away') || {};
   const status = comp.status?.type?.name || '';
-  const statusShort = comp.status?.type?.shortDetail || '';
+  const statusDetail = comp.status?.type?.shortDetail || comp.status?.type?.detail || '';
 
   let mappedStatus = 'upcoming';
   if (status.includes('FULL') || status.includes('FINAL')) mappedStatus = 'finished';
-  else if (status.includes('HALF') || status.includes('IN_PROGRESS') || status.includes('LIVE')) mappedStatus = 'live';
+  else if (status.includes('HALF') || status.includes('IN_PROGRESS') || status.includes('LIVE') || status.includes('2ND') || status.includes('1ST')) mappedStatus = 'live';
 
   return {
     id: e.id,
     date: e.date,
     name: e.name,
     status: mappedStatus,
-    statusDetail: statusShort,
+    statusDetail,
     venue: comp.venue?.fullName || '',
     home: {
       id: home.id,
@@ -84,22 +109,10 @@ function mapEvent(e) {
   };
 }
 
-// Get match detail with events/lineups from ESPN
-async function getMatchDetail(id) {
-  const cacheKey = `wc:detail:${id}`;
-  const cached = await redisGet(cacheKey);
-  if (cached) return cached;
+// Parse ESPN summary into our format
+function parseSummary(data) {
+  const result = { events: [], lineups: [], stats: [] };
 
-  const data = await espnFetch(`/summary?event=${id}`);
-  if (!data) return null;
-
-  const result = {
-    events: [],
-    lineups: [],
-    stats: [],
-  };
-
-  // Extract key events (goals, cards, subs)
   for (const e of data.keyEvents || []) {
     const type = e.type?.text || '';
     const typeLower = type.toLowerCase();
@@ -120,7 +133,6 @@ async function getMatchDetail(id) {
     }
   }
 
-  // Extract lineups from rosters array
   for (const r of data.rosters || []) {
     const teamName = r.team?.displayName || '';
     const teamAbbr = r.team?.abbreviation || '';
@@ -128,18 +140,13 @@ async function getMatchDetail(id) {
     const xi = [];
     const subs = [];
     for (const p of r.roster || []) {
-      const player = {
-        number: p.jersey || '',
-        name: p.athlete?.displayName || '',
-        pos: p.athlete?.position?.abbreviation || '',
-      };
+      const player = { number: p.jersey || '', name: p.athlete?.displayName || '', pos: p.athlete?.position?.abbreviation || '' };
       if (p.starter) xi.push(player);
       else subs.push(player);
     }
     result.lineups.push({ team: teamName, teamAbbr, formation, xi, subs });
   }
 
-  // Extract stats from boxscore teams
   for (const t of data.boxscore?.teams || []) {
     const teamName = t.team?.abbreviation || '';
     const stats = {};
@@ -149,49 +156,102 @@ async function getMatchDetail(id) {
     result.stats.push({ team: teamName, stats });
   }
 
-  // Short cache for live, longer for finished
-  const status = data.header?.competitions?.[0]?.status?.type?.name || '';
-  const ttl = status.includes('FULL') ? TTL.FINISHED :
-              status.includes('IN_PROGRESS') || status.includes('HALF') ? TTL.LIVE :
-              TTL.SCHEDULED;
-  await redisSet(cacheKey, result, ttl);
   return result;
+}
+
+// Get match detail: DB → ESPN → store in DB
+async function getMatchDetail(id) {
+  const idStr = String(id);
+
+  // 1. Check PostgreSQL
+  try {
+    const dbRes = await db.query('SELECT events, lineups, stats FROM match_details WHERE match_id = $1', [idStr]);
+    if (dbRes.rows.length > 0) {
+      const row = dbRes.rows[0];
+      // Only use DB data if it has actual content
+      if ((row.events && row.events.length > 0) || (row.lineups && row.lineups.length > 0)) {
+        return { events: row.events || [], lineups: row.lineups || [], stats: row.stats || [] };
+      }
+    }
+  } catch (e) {
+    console.error('DB read error:', e.message);
+  }
+
+  // 2. Fetch from ESPN
+  const data = await espnFetch(`/summary?event=${id}`);
+  if (!data) return null;
+
+  const parsed = parseSummary(data);
+
+  // 3. Store in PostgreSQL
+  try {
+    await db.query(
+      `INSERT INTO match_details (match_id, events, lineups, stats, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (match_id) DO UPDATE SET
+         events = EXCLUDED.events,
+         lineups = EXCLUDED.lineups,
+         stats = EXCLUDED.stats,
+         updated_at = NOW()`,
+      [idStr, JSON.stringify(parsed.events), JSON.stringify(parsed.lineups), JSON.stringify(parsed.stats)]
+    );
+  } catch (e) {
+    console.error('DB write error:', e.message);
+  }
+
+  return parsed;
 }
 
 const app = new Hono();
 
-// All matches (today + recent)
+// All matches — live first, then by date
 app.get('/api/matches', async (c) => {
-  const cacheKey = 'wc:matches:today';
+  const cacheKey = 'wc:matches:sorted';
   let events = await redisGet(cacheKey);
 
   if (!events) {
-    // Fetch today and yesterday and tomorrow
     const today = new Date();
-    const dates = [-1, 0, 1].map(offset => {
+    // Cover the full tournament (June 11 - July 19, 2026)
+    const tournamentStart = new Date('2026-06-11');
+    const daysSinceStart = Math.floor((today - tournamentStart) / (1000 * 60 * 60 * 24));
+    const startOffset = Math.max(-daysSinceStart, -30);
+    const dates = [];
+    for (let offset = startOffset; offset <= 2; offset++) {
       const d = new Date(today);
       d.setDate(d.getDate() + offset);
-      return d.toISOString().slice(0, 10).replace(/-/g, '');
-    });
+      dates.push(d.toISOString().slice(0, 10).replace(/-/g, ''));
+    }
 
     const allEvents = [];
     for (const date of dates) {
       const data = await espnFetch(`/scoreboard?dates=${date}`);
       if (data?.events) allEvents.push(...data.events);
     }
-    events = allEvents.map(mapEvent);
+
+    // Deduplicate by id
+    const seen = new Set();
+    const unique = allEvents.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
+
+    events = unique.map(mapEvent).sort((a, b) => {
+      // Live matches first
+      const statusOrder = { live: 0, finished: 1, upcoming: 2 };
+      const sa = statusOrder[a.status] ?? 2;
+      const sb = statusOrder[b.status] ?? 2;
+      if (sa !== sb) return sa - sb;
+      // Within same status, sort by date (newest first for finished, soonest first for upcoming)
+      return new Date(b.date) - new Date(a.date);
+    });
+
     await redisSet(cacheKey, events, TTL.LIVE);
   }
 
   return c.json(events);
 });
 
-// Live matches only
+// Live matches
 app.get('/api/matches/live', async (c) => {
   const data = await espnFetch('/scoreboard');
-  const live = (data?.events || [])
-    .map(mapEvent)
-    .filter(m => m.status === 'live');
+  const live = (data?.events || []).map(mapEvent).filter(m => m.status === 'live');
   return c.json(live);
 });
 
@@ -208,8 +268,7 @@ app.get('/api/standings', async (c) => {
   const cacheKey = 'wc:standings';
   let data = await redisGet(cacheKey);
   if (!data) {
-    const res = await espnFetch('/standings');
-    data = res || { error: 'No data' };
+    data = await espnFetch('/standings');
     await redisSet(cacheKey, data, TTL.STANDINGS);
   }
   return c.json(data);
@@ -217,9 +276,10 @@ app.get('/api/standings', async (c) => {
 
 // Status
 app.get('/api/status', async (c) => {
-  let redisOk = false;
+  let redisOk = false, pgOk = false;
   try { await redis.ping(); redisOk = true; } catch {}
-  return c.json({ ok: true, redis: redisOk, source: 'ESPN', port: PORT });
+  try { await db.query('SELECT 1'); pgOk = true; } catch {}
+  return c.json({ ok: true, redis: redisOk, postgres: pgOk, source: 'ESPN', port: PORT });
 });
 
 // Static files
@@ -234,7 +294,7 @@ app.get('*', async (c) => {
 serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, (info) => {
   console.log(`⚽ WC 2026 — The Pulse`);
   console.log(`🚀 http://0.0.0.0:${info.port}`);
-  console.log(`📡 Data: ESPN public API (free, no key)`);
-  console.log(`🗄️  Cache: Upstash Redis`);
-  console.log(`💡 TTLs: Live=30s, Finished=6h, Standings=6h`);
+  console.log(`📡 Data: ESPN public API`);
+  console.log(`🗄️  Cache: Redis + PostgreSQL`);
+  console.log(`💡 Live matches pinned to top`);
 });
