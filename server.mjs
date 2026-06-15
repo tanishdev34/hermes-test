@@ -275,6 +275,173 @@ app.get('/api/standings', async (c) => {
   return c.json(data);
 });
 
+// === F1 ENDPOINTS ===
+const F1_BASE = 'https://api.jolpi.ca/ergast/f1';
+const F1_TEAM_COLORS = {
+  'Red Bull':'#3671C6','Mercedes':'#27F4D2','Ferrari':'#E8002D','McLaren':'#FF8000',
+  'Aston Martin':'#229971','Alpine':'#FF87BC','Williams':'#64C4FF','RB':'#6692FF',
+  'Sauber':'#52E252','Haas':'#B6BABD',
+};
+
+async function f1Fetch(path) {
+  try {
+    const res = await fetch(`${F1_BASE}${path}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) { console.error('F1 error:', e.message); return null; }
+}
+
+// Season overview
+app.get('/api/f1/season/:year', async (c) => {
+  const year = c.req.param('year');
+  const cacheKey = `f1:season:${year}`;
+  let cached = await redisGet(cacheKey);
+  if (cached) return c.json(cached);
+
+  const [racesData, standingsData] = await Promise.all([
+    f1Fetch(`/${year}/results.json?limit=500`),
+    f1Fetch(`/${year}/driverStandings.json`),
+  ]);
+
+  const races = (racesData?.MRData?.RaceTable?.Races || []).map(race => {
+    const winner = race.Results?.[0];
+    return {
+      round: parseInt(race.round),
+      name: race.raceName,
+      circuit: race.Circuit?.circuitName || '',
+      date: race.date,
+      flag: race.Circuit?.Location?.country ? countryToFlag(race.Circuit.Location.country) : '🏁',
+      winner: winner ? `${winner.Driver.givenName} ${winner.Driver.familyName}` : null,
+      winner_team: winner?.Constructor?.name || null,
+      year: parseInt(year),
+    };
+  });
+
+  const driverStandings = (standingsData?.MRData?.StandingsTable?.StandingsLists?.[0]?.DriverStandings || []).map(d => ({
+    driver: `${d.Driver.givenName} ${d.Driver.familyName}`,
+    team: d.Constructors?.[0]?.name || '',
+    points: parseInt(d.points),
+    color: F1_TEAM_COLORS[d.Constructors?.[0]?.name] || '#fff',
+  }));
+
+  const result = { races, driver_standings: driverStandings };
+  await redisSet(cacheKey, result, 6 * 3600);
+  return c.json(result);
+});
+
+// Race detail
+app.get('/api/f1/race/:year/:round', async (c) => {
+  const year = c.req.param('year');
+  const round = c.req.param('round');
+  const cacheKey = `f1:race:${year}:${round}`;
+  let cached = await redisGet(cacheKey);
+  if (cached) return c.json(cached);
+
+  const [resultsData, lapsData, pitstopsData] = await Promise.all([
+    f1Fetch(`/${year}/${round}/results.json`),
+    f1Fetch(`/${year}/${round}/laps.json?limit=2000`),
+    f1Fetch(`/${year}/${round}/pitstops.json`),
+  ]);
+
+  const race = resultsData?.MRData?.RaceTable?.Races?.[0];
+  if (!race) return c.json({ error: 'Race not found' }, 404);
+
+  const results = (race.Results || []).map(r => ({
+    position: parseInt(r.position),
+    driver: `${r.Driver.givenName} ${r.Driver.familyName}`,
+    number: r.number,
+    team: r.Constructor?.name || '',
+    color: F1_TEAM_COLORS[r.Constructor?.name] || '#fff',
+    time: r.Time?.time || '',
+    gap: r.gap || '',
+    points: parseInt(r.points) || 0,
+    best_lap: r.FastestLap?.Time?.time || '',
+    status: r.status || '',
+  }));
+
+  // Parse laps into position data for chart
+  const laps = [];
+  const lapData = lapsData?.MRData?.RaceTable?.Races?.[0]?.Laps || [];
+  for (const lap of lapData) {
+    for (const timing of lap.Timings || []) {
+      laps.push({
+        lap: parseInt(lap.number),
+        driver: timing.driverId,
+        position: parseInt(timing.position),
+      });
+    }
+  }
+
+  // Build strategy from pit stops
+  const pitstops = pitstopsData?.MRData?.RaceTable?.Races?.[0]?.PitStops || [];
+  const strategyMap = {};
+  for (const ps of pitstops) {
+    if (!strategyMap[ps.driverId]) strategyMap[ps.driverId] = [];
+    strategyMap[ps.driverId].push({
+      lap: parseInt(ps.lap),
+      stop: parseInt(ps.stop),
+      duration: ps.duration,
+    });
+  }
+
+  // Map driver IDs to names and build stint data
+  const driverMap = {};
+  for (const r of results) {
+    const id = r.driver.toLowerCase().replace(/\s+/g, '').replace(/[àáâãäå]/g,'a').replace(/[èéêë]/g,'e').replace(/[ìíîï]/g,'i').replace(/[òóôõö]/g,'o').replace(/[ùúûü]/g,'u').replace(/ñ/g,'n').replace(/ç/g,'c');
+    driverMap[id] = r.driver;
+  }
+
+  const strategy = Object.entries(strategyMap).map(([driverId, stops]) => {
+    const driverName = driverMap[driverId] || driverId;
+    const stints = [];
+    let lastLap = 1;
+    for (const stop of stops) {
+      stints.push({ start_lap: lastLap, end_lap: stop.lap, laps: stop.lap - lastLap + 1, compound: guessCompound(stop.lap, stops.length) });
+      lastLap = stop.lap + 1;
+    }
+    stints.push({ start_lap: lastLap, end_lap: 50, laps: 50 - lastLap + 1, compound: guessCompound(50, stops.length) });
+    return { driver: driverName, stints };
+  });
+
+  // Fastest lap
+  const fastestLap = results.find(r => r.best_lap)?.best_lap ? {
+    driver: results.find(r => r.best_lap)?.driver || '',
+    time: results.find(r => r.best_lap)?.best_lap || '',
+    team: results.find(r => r.best_lap)?.team || '',
+    lap: '',
+  } : null;
+
+  const result = {
+    name: race.raceName,
+    circuit: race.Circuit?.circuitName || '',
+    date: race.date,
+    results,
+    laps,
+    strategy,
+    fastest_lap: fastestLap,
+  };
+
+  await redisSet(cacheKey, result, 6 * 3600);
+  return c.json(result);
+});
+
+function guessCompound(lap, totalStops) {
+  if (totalStops >= 3) return 'SOFT';
+  if (totalStops === 2) return lap < 20 ? 'SOFT' : 'MEDIUM';
+  return lap < 25 ? 'MEDIUM' : 'HARD';
+}
+
+function countryToFlag(country) {
+  const flags = {
+    'Australia':'🇦🇺','Bahrain':'🇧🇭','Saudi Arabia':'🇸🇦','Italy':'🇮🇹','United States':'🇺🇸',
+    'Monaco':'🇲🇨','Canada':'🇨🇦','Spain':'🇪🇸','Austria':'🇦🇹','United Kingdom':'🇬🇧',
+    'Hungary':'🇭🇺','Belgium':'🇧🇪','Netherlands':'🇳🇱','Singapore':'🇸🇬','Japan':'🇯🇵',
+    'Qatar':'🇶🇦','Mexico':'🇲🇽','Brazil':'🇧🇷','Las Vegas':'🇺🇸','Abu Dhabi':'🇦🇪',
+    'China':'🇨🇳','Azerbaijan':'🇦🇿','Miami':'🇺🇸','Emilia Romagna':'🇮🇹',
+  };
+  return flags[country] || '🏁';
+}
+
 // Status
 app.get('/api/status', async (c) => {
   let redisOk = false, pgOk = false;

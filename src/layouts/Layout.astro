@@ -510,6 +510,82 @@ const updateTime = now.toLocaleDateString('en-US', { month: 'short', day: 'numer
       margin-top: 3rem;
     }
 
+    /* F1 Styles */
+    .f1-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+    .f1-race-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.2rem;
+      transition: all 0.15s;
+      position: relative;
+      overflow: hidden;
+    }
+    .f1-race-card:hover { background: var(--bg-card-hover); transform: translateY(-2px); }
+    .f1-race-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #e10600, #ff1801);
+    }
+    .f1-race-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .f1-round { font-size: 0.65rem; font-weight: 700; color: #e10600; background: rgba(225,6,0,0.1); padding: 0.15rem 0.5rem; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .f1-flag { font-size: 1.5rem; }
+    .f1-race-name { font-weight: 800; font-size: 1rem; margin-bottom: 0.2rem; }
+    .f1-race-circuit { font-size: 0.75rem; color: var(--text-muted); }
+    .f1-race-date { font-size: 0.7rem; color: var(--text-dim); margin-top: 0.3rem; }
+    .f1-winner { margin-top: 0.8rem; padding-top: 0.6rem; border-top: 1px solid var(--border); }
+    .f1-winner-label { font-size: 0.6rem; color: var(--gold); text-transform: uppercase; letter-spacing: 0.1em; display: block; }
+    .f1-winner-name { font-weight: 700; font-size: 0.9rem; }
+    .f1-upcoming { margin-top: 0.8rem; font-size: 0.7rem; color: var(--cyan); font-weight: 600; }
+    .f1-standings { margin-top: 2rem; }
+    .f1-standings-title { font-size: 1rem; font-weight: 800; margin-bottom: 1rem; }
+    .f1-standings-list { display: flex; flex-direction: column; gap: 0.2rem; }
+    .f1-driver-row { display: flex; align-items: center; gap: 0.8rem; padding: 0.5rem 0.8rem; border-radius: 8px; font-size: 0.82rem; }
+    .f1-driver-row:nth-child(odd) { background: rgba(255,255,255,0.02); }
+    .f1-pos { font-weight: 900; color: var(--text-dim); min-width: 24px; font-size: 0.8rem; }
+    .f1-driver-name { font-weight: 700; flex: 1; }
+    .f1-driver-team { font-size: 0.72rem; }
+    .f1-driver-pts { font-weight: 800; color: var(--gold); font-size: 0.85rem; min-width: 60px; text-align: right; }
+    .f1-results-table { width: 100%; border-collapse: collapse; }
+    .f1-results-table th { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); text-align: left; padding: 0.4rem 0.8rem; border-bottom: 1px solid var(--border); font-weight: 600; }
+    .f1-results-table th:not(:first-child) { text-align: center; }
+    .f1-results-table td { padding: 0.5rem 0.8rem; font-size: 0.82rem; border-bottom: 1px solid rgba(255,255,255,0.03); }
+    .f1-results-table td:not(:first-child):not(:nth-child(2)) { text-align: center; }
+    .f1-result-pos { font-weight: 900; color: var(--text-dim); }
+    .f1-pos-1 .f1-result-pos { color: var(--gold); }
+    .f1-pos-2 .f1-result-pos { color: #c0c0c0; }
+    .f1-pos-3 .f1-result-pos { color: #cd7f32; }
+    .f1-driver-num { font-weight: 900; font-size: 0.7rem; margin-right: 0.3rem; }
+    .f1-team-name { font-size: 0.72rem; color: var(--text-muted); }
+    .f1-lap-chart { padding: 1rem; }
+    .f1-lap-legend { display: flex; flex-wrap: wrap; gap: 0.8rem; font-size: 0.7rem; margin-bottom: 1rem; }
+    .f1-strategy-grid { display: flex; flex-direction: column; gap: 0.6rem; }
+    .f1-strategy-row { display: flex; align-items: center; gap: 1rem; }
+    .f1-strategy-driver { font-weight: 700; font-size: 0.8rem; min-width: 120px; }
+    .f1-stints { display: flex; gap: 2px; flex: 1; }
+    .f1-stint {
+      height: 24px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.6rem;
+      font-weight: 800;
+      color: #000;
+      min-width: 20px;
+      cursor: help;
+    }
+    .f1-fastest-card { text-align: center; padding: 2rem; }
+    .f1-fastest-driver { font-size: 1.5rem; font-weight: 900; }
+    .f1-fastest-time { font-size: 2.5rem; font-weight: 900; color: var(--purple); margin: 0.5rem 0; font-variant-numeric: tabular-nums; }
+    .f1-fastest-info { font-size: 0.8rem; color: var(--text-muted); }
+
     /* Clickable match cards */
     .clickable { cursor: pointer; transition: all 0.15s; }
     .clickable:hover { background: var(--bg-card-hover) !important; transform: translateX(4px); }
