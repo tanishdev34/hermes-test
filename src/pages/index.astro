@@ -552,69 +552,79 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
         const matches = await res.json();
         if (!matches.length) { container.innerHTML = '<p style="color:var(--text-muted)">No matches found.</p>'; return; }
 
+        const live = matches.filter(m => m.status === 'live');
+        const finished = matches.filter(m => m.status === 'finished').sort((a, b) => new Date(b.date) - new Date(a.date)); // desc
+        const upcoming = matches.filter(m => m.status === 'upcoming').sort((a, b) => new Date(a.date) - new Date(b.date)); // asc
+
+        const showFinished = finished.slice(0, 3);
+        const showUpcoming = upcoming.slice(0, 3);
+
         let html = '';
-        let lastDate = '';
-        for (const m of matches) {
-          const d = new Date(m.date);
-          const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-          const dateLabel = dateStr !== lastDate ? dateStr : null;
-          lastDate = dateStr;
 
-          const homeName = m.home.name;
-          const awayName = m.away.name;
-          const homeScore = m.home.score ?? '?';
-          const awayScore = m.away.score ?? '?';
-          const hf = getFlag(homeName);
-          const af = getFlag(awayName);
-
-          let scoreClass = '';
-          if (m.status === 'finished') {
-            scoreClass = m.home.score === m.away.score ? 'score-draw' : 'score-win';
-          }
-
-          const statusIcon = m.status === 'live' ? '<span class="live-badge"><span class="live-dot"></span> LIVE</span>' : '';
-          const timeBadge = m.status === 'upcoming' ? `<div class="match-time-badge">${dateStr} · ${m.statusDetail || ''}</div>` : '';
-
-          const matchData = JSON.stringify({home: homeName, away: awayName, homeScore: m.home.score, awayScore: m.away.score, group: '', date: dateStr, venue: m.venue, statusDetail: m.statusDetail});
-
-          html += `
-            ${dateLabel ? `<div class="match-date-label">${dateLabel}</div>` : ''}
-            <div class="match-card match-group-a clickable" data-match-id="${m.id}" data-match='${matchData.replace(/'/g,"&#39;")}' onclick="openMatch(${m.id})">
-              ${statusIcon}
-              <div class="match-teams">
-                <div class="match-team home">
-                  <span>${homeName}</span>
-                  <span class="match-flag">${hf}</span>
-                </div>
-                <span class="match-vs">vs</span>
-                <div class="match-team">
-                  <span class="match-flag">${af}</span>
-                  <span>${awayName}</span>
-                </div>
-              </div>
-              <div class="match-score ${scoreClass}">${homeScore} — ${awayScore}</div>
-              ${timeBadge}
-              <div class="match-arrow">→</div>
-            </div>`;
+        // Live matches on top
+        if (live.length) {
+          for (const m of live) html += renderMatchCard(m, true);
         }
+
+        // Completed (max 3, newest first)
+        if (showFinished.length) {
+          html += '<div class="match-section-label">Completed</div>';
+          for (const m of showFinished) html += renderMatchCard(m, false);
+          if (finished.length > 3) html += `<a href="/matches" class="view-all-link">View all ${finished.length} completed →</a>`;
+        }
+
+        // Upcoming (max 3, soonest first)
+        if (showUpcoming.length) {
+          html += '<div class="match-section-label">Upcoming</div>';
+          for (const m of showUpcoming) html += renderMatchCard(m, false);
+          if (upcoming.length > 3) html += `<a href="/matches" class="view-all-link">View all ${upcoming.length} upcoming →</a>`;
+        }
+
         container.innerHTML = html;
 
-        // Update stats in header only
-        const live = matches.filter(m => m.status === 'live').length;
-        const finished = matches.filter(m => m.status === 'finished').length;
+        // Update stats
         const goals = matches.reduce((sum, m) => sum + (m.home.score || 0) + (m.away.score || 0), 0);
-        const teams = new Set();
-        matches.forEach(m => { teams.add(m.home.name); teams.add(m.away.name); });
-        const upcoming = matches.filter(m => m.status === 'upcoming').length;
+        const allTeams = new Set();
+        matches.forEach(m => { allTeams.add(m.home.name); allTeams.add(m.away.name); });
 
         const statCards = document.querySelectorAll('.stats-row .stat-card .stat-number');
-        if (statCards[0]) statCards[0].textContent = finished;
+        if (statCards[0]) statCards[0].textContent = finished.length;
         if (statCards[1]) statCards[1].textContent = goals;
-        if (statCards[2]) statCards[2].textContent = teams.size;
-        if (statCards[3]) statCards[3].textContent = live + upcoming;
+        if (statCards[2]) statCards[2].textContent = allTeams.size;
+        if (statCards[3]) statCards[3].textContent = live.length + upcoming.length;
       } catch (e) {
         container.innerHTML = '<p style="color:var(--text-muted)">Failed to load matches.</p>';
       }
+    }
+
+    function renderMatchCard(m, isLive) {
+      const d = new Date(m.date);
+      const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      const homeName = m.home.name;
+      const awayName = m.away.name;
+      const homeScore = m.home.score ?? '?';
+      const awayScore = m.away.score ?? '?';
+      const hf = getFlag(homeName);
+      const af = getFlag(awayName);
+
+      let scoreClass = '';
+      if (m.status === 'finished') scoreClass = m.home.score === m.away.score ? 'score-draw' : 'score-win';
+
+      const statusIcon = isLive ? '<span class="live-badge"><span class="live-dot"></span> LIVE</span>' : '';
+      const timeBadge = m.status === 'upcoming' ? `<div class="match-time-badge">${dateStr} · ${m.statusDetail || ''}</div>` : '';
+      const matchData = JSON.stringify({home: homeName, away: awayName, homeScore: m.home.score, awayScore: m.away.score, group: '', date: dateStr, venue: m.venue, statusDetail: m.statusDetail}).replace(/'/g,"&#39;");
+
+      return `<div class="match-card match-group-a clickable" data-match-id="${m.id}" data-match='${matchData}' onclick="openMatch(${m.id})">
+        ${statusIcon}
+        <div class="match-teams">
+          <div class="match-team home"><span>${homeName}</span><span class="match-flag">${hf}</span></div>
+          <span class="match-vs">vs</span>
+          <div class="match-team"><span class="match-flag">${af}</span><span>${awayName}</span></div>
+        </div>
+        <div class="match-score ${scoreClass}">${homeScore} — ${awayScore}</div>
+        ${timeBadge}
+        <div class="match-arrow">→</div>
+      </div>`;
     }
 
     // Auto-refresh every 30s

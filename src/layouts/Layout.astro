@@ -464,6 +464,7 @@ const updateTime = now.toLocaleDateString('en-US', { month: 'short', day: 'numer
       background: rgba(255,71,87,0.15);
       padding: 0.15rem 0.5rem;
       border-radius: 4px;
+      margin-bottom: 0.3rem;
     }
     .live-dot {
       width: 5px; height: 5px;
@@ -471,6 +472,33 @@ const updateTime = now.toLocaleDateString('en-US', { month: 'short', day: 'numer
       background: var(--red);
       animation: pulse 1s infinite;
     }
+
+    /* Section labels */
+    .match-section-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-dim);
+      padding: 1rem 0 0.3rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0.5rem;
+    }
+    .view-all-link {
+      display: block;
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--cyan);
+      text-decoration: none;
+      padding: 0.6rem;
+      border-radius: 8px;
+      background: rgba(0,229,255,0.05);
+      border: 1px solid rgba(0,229,255,0.1);
+      margin-top: 0.5rem;
+      transition: all 0.15s;
+      font-weight: 600;
+    }
+    .view-all-link:hover { background: rgba(0,229,255,0.1); border-color: rgba(0,229,255,0.2); }
 
     /* Footer */
     .footer {

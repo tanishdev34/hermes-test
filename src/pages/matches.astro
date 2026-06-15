@@ -1,0 +1,109 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="All Matches — World Cup 2026">
+  <div class="section">
+    <div class="section-header">
+      <a href="/" style="color:var(--cyan);font-size:0.8rem;text-decoration:none">← Back to Dashboard</a>
+      <h2 class="section-title" style="margin-top:0.5rem">All Matches</h2>
+      <p class="section-desc">Completed (ascending) · Live · Upcoming (ascending). Auto-scrolls to the current match.</p>
+    </div>
+    <div class="match-list" id="allMatchesList">
+      <div class="loading"><span class="pulse-dot"></span> Loading all matches...</div>
+    </div>
+  </div>
+
+  <script is:inline>
+    const FLAGS = {"Mexico":"🇲🇽","Korea Republic":"🇰🇷","Czechia":"🇨🇿","South Africa":"🇿🇦","Bosnia & Herzegovina":"🇧🇦","Canada":"🇨🇦","Qatar":"🇶🇦","Switzerland":"🇨🇭","Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Brazil":"🇧🇷","Morocco":"🇲🇦","Haiti":"🇭🇹","United States":"🇺🇸","Australia":"🇦🇺","Türkiye":"🇹🇷","Paraguay":"🇵🇾","Germany":"🇩🇪","Curaçao":"🇨🇼","Côte d'Ivoire":"🇨🇮","Ecuador":"🇪🇨","Netherlands":"🇳🇱","Japan":"🇯🇵","Sweden":"🇸🇪","Tunisia":"🇹🇳","Belgium":"🇧🇪","Egypt":"🇪🇬","IR Iran":"🇮🇷","New Zealand":"🇳🇿","Spain":"🇪🇸","Cabo Verde":"🇨🇻","Saudi Arabia":"🇸🇦","Uruguay":"🇺🇾","France":"🇫🇷","Senegal":"🇸🇳","Iraq":"🇮🇶","Norway":"🇳🇴","Argentina":"🇦🇷","Algeria":"🇩🇿","Austria":"🇦🇹","Jordan":"🇯🇴","Portugal":"🇵🇹","Congo DR":"🇨🇩","Uzbekistan":"🇺🇿","Colombia":"🇨🇴","England":"🇬🇧","Croatia":"🇭🇷","Ghana":"🇬🇭","Panama":"🇵🇦"};
+
+    function getFlag(name) {
+      if (!name) return '🏳️';
+      if (FLAGS[name]) return FLAGS[name];
+      for (const [k,v] of Object.entries(FLAGS)) {
+        if (name.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(name.toLowerCase())) return v;
+      }
+      return '🏳️';
+    }
+
+    function renderCard(m, isLive) {
+      const d = new Date(m.date);
+      const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      const homeName = m.home.name;
+      const awayName = m.away.name;
+      const homeScore = m.home.score ?? '?';
+      const awayScore = m.away.score ?? '?';
+      const hf = getFlag(homeName);
+      const af = getFlag(awayName);
+      let scoreClass = '';
+      if (m.status === 'finished') scoreClass = m.home.score === m.away.score ? 'score-draw' : 'score-win';
+      const statusIcon = isLive ? '<span class="live-badge"><span class="live-dot"></span> LIVE</span>' : '';
+      const timeBadge = m.status === 'upcoming' ? `<div class="match-time-badge">${dateStr} · ${m.statusDetail || ''}</div>` : '';
+      const matchData = JSON.stringify({home: homeName, away: awayName, homeScore: m.home.score, awayScore: m.away.score, group: '', date: dateStr, venue: m.venue, statusDetail: m.statusDetail}).replace(/'/g,"&#39;");
+      return `<div class="match-card match-group-a clickable" id="match-${m.id}" data-match-id="${m.id}" data-match='${matchData}' onclick="openMatch(${m.id})">
+        ${statusIcon}
+        <div class="match-teams">
+          <div class="match-team home"><span>${homeName}</span><span class="match-flag">${hf}</span></div>
+          <span class="match-vs">vs</span>
+          <div class="match-team"><span class="match-flag">${af}</span><span>${awayName}</span></div>
+        </div>
+        <div class="match-score ${scoreClass}">${homeScore} — ${awayScore}</div>
+        ${timeBadge}
+        <div class="match-arrow">→</div>
+      </div>`;
+    }
+
+    async function loadAllMatches() {
+      const container = document.getElementById('allMatchesList');
+      try {
+        const res = await fetch('/api/matches');
+        const matches = await res.json();
+
+        const live = matches.filter(m => m.status === 'live');
+        const finished = matches.filter(m => m.status === 'finished').sort((a, b) => new Date(a.date) - new Date(b.date)); // asc
+        const upcoming = matches.filter(m => m.status === 'upcoming').sort((a, b) => new Date(a.date) - new Date(b.date)); // asc
+
+        let html = '';
+        let scrollTargetId = null;
+
+        // Completed (all, ascending)
+        if (finished.length) {
+          html += '<div class="match-section-label">Completed Matches</div>';
+          for (const m of finished) html += renderCard(m, false);
+        }
+
+        // Live
+        if (live.length) {
+          html += '<div class="match-section-label" style="color:var(--red)">🔴 Live Now</div>';
+          for (const m of live) {
+            html += renderCard(m, true);
+            scrollTargetId = `match-${m.id}`;
+          }
+        }
+
+        // Upcoming (all, ascending)
+        if (upcoming.length) {
+          html += '<div class="match-section-label">Upcoming Matches</div>';
+          for (const m of upcoming) {
+            html += renderCard(m, false);
+            if (!scrollTargetId) scrollTargetId = `match-${m.id}`;
+          }
+        }
+
+        container.innerHTML = html;
+
+        // Auto-scroll to live or first upcoming
+        if (scrollTargetId) {
+          setTimeout(() => {
+            const el = document.getElementById(scrollTargetId);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 300);
+        }
+      } catch (e) {
+        container.innerHTML = '<p style="color:var(--text-muted)">Failed to load matches.</p>';
+      }
+    }
+
+    loadAllMatches();
+  </script>
+</Layout>
