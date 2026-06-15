@@ -42,56 +42,15 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
     </div>
   </header>
 
-  <!-- 01 Completed Matches -->
+  <!-- 01 Matches (live first) -->
   <section class="section" id="matches">
     <div class="section-header">
       <div class="section-num">01</div>
-      <h2 class="section-title">Completed Matches</h2>
-      <p class="section-desc">Latest results first. Winners glow green, draws gold; the group colour rides the left edge.</p>
+      <h2 class="section-title">Matches</h2>
+      <p class="section-desc">Live matches pinned to top. Click any match for details — events, lineups, and stats.</p>
     </div>
-    <div class="match-list">
-      {(() => {
-        let lastDate = '';
-        return completedMatches.map((match) => {
-          const dateLabel = match.date !== lastDate ? match.date : null;
-          lastDate = match.date;
-          const homeFlag = TEAM_FLAGS[match.homeTeam] || '🏳️';
-          const awayFlag = TEAM_FLAGS[match.awayTeam] || '🏳️';
-          const groupClass = `match-group-${match.group.toLowerCase()}`;
-
-          let scoreClass = '';
-          if (match.homeScore !== null && match.awayScore !== null) {
-            if (match.homeScore === match.awayScore) scoreClass = 'score-draw';
-            else scoreClass = 'score-win';
-          }
-
-          return (
-            <>
-              {dateLabel && <div class="match-date-label">{dateLabel}</div>}
-              <div class={`match-card ${groupClass} clickable`} data-match-id={match.id} data-match={JSON.stringify({home: match.homeTeam, away: match.awayTeam, homeScore: match.homeScore, awayScore: match.awayScore, group: match.group, date: match.date, venue: match.venue})} onclick={`openMatch(${match.id})`}>
-                <div class="match-group-badge" style={`color: ${GROUP_COLORS[match.group] || '#888'}`}>
-                  Group {match.group}
-                </div>
-                <div class="match-teams">
-                  <div class="match-team home">
-                    <span>{match.homeTeam}</span>
-                    <span class="match-flag">{homeFlag}</span>
-                  </div>
-                  <span class="match-vs">vs</span>
-                  <div class="match-team">
-                    <span class="match-flag">{awayFlag}</span>
-                    <span>{match.awayTeam}</span>
-                  </div>
-                </div>
-                <div class={`match-score ${scoreClass}`}>
-                  {match.homeScore} — {match.awayScore}
-                </div>
-                <div class="match-arrow">→</div>
-              </div>
-            </>
-          );
-        });
-      })()}
+    <div class="match-list" id="matchesList">
+      <div class="loading"><span class="pulse-dot"></span> Loading matches...</div>
     </div>
   </section>
 
@@ -573,6 +532,7 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
 
   <script is:inline>
     const FLAGS = {"Mexico":"🇲🇽","Korea Republic":"🇰🇷","Czechia":"🇨🇿","South Africa":"🇿🇦","Bosnia & Herzegovina":"🇧🇦","Canada":"🇨🇦","Qatar":"🇶🇦","Switzerland":"🇨🇭","Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Brazil":"🇧🇷","Morocco":"🇲🇦","Haiti":"🇭🇹","United States":"🇺🇸","Australia":"🇦🇺","Türkiye":"🇹🇷","Paraguay":"🇵🇾","Germany":"🇩🇪","Curaçao":"🇨🇼","Côte d'Ivoire":"🇨🇮","Ecuador":"🇪🇨","Netherlands":"🇳🇱","Japan":"🇯🇵","Sweden":"🇸🇪","Tunisia":"🇹🇳","Belgium":"🇧🇪","Egypt":"🇪🇬","IR Iran":"🇮🇷","New Zealand":"🇳🇿","Spain":"🇪🇸","Cabo Verde":"🇨🇻","Saudi Arabia":"🇸🇦","Uruguay":"🇺🇾","France":"🇫🇷","Senegal":"🇸🇳","Iraq":"🇮🇶","Norway":"🇳🇴","Argentina":"🇦🇷","Algeria":"🇩🇿","Austria":"🇦🇹","Jordan":"🇯🇴","Portugal":"🇵🇹","Congo DR":"🇨🇩","Uzbekistan":"🇺🇿","Colombia":"🇨🇴","England":"🇬🇧","Croatia":"🇭🇷","Ghana":"🇬🇭","Panama":"🇵🇦"};
+    const GROUP_COLORS_MAP = {"A":"#00e5ff","B":"#76ff03","C":"#ffd600","D":"#e040fb","E":"#00e5ff","F":"#76ff03","G":"#ffd600","H":"#e040fb","I":"#00e5ff","J":"#76ff03","K":"#ffd600","L":"#e040fb"};
 
     function getFlag(name) {
       if (!name) return '🏳️';
@@ -582,6 +542,84 @@ const predictions = upcomingMatches.map(m => predictMatch(m.homeTeam, m.awayTeam
       }
       return '🏳️';
     }
+
+    // Load matches from API
+    async function loadMatches() {
+      const container = document.getElementById('matchesList');
+      if (!container) return;
+      try {
+        const res = await fetch('/api/matches');
+        const matches = await res.json();
+        if (!matches.length) { container.innerHTML = '<p style="color:var(--text-muted)">No matches found.</p>'; return; }
+
+        let html = '';
+        let lastDate = '';
+        for (const m of matches) {
+          const d = new Date(m.date);
+          const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+          const dateLabel = dateStr !== lastDate ? dateStr : null;
+          lastDate = dateStr;
+
+          const homeName = m.home.name;
+          const awayName = m.away.name;
+          const homeScore = m.home.score ?? '?';
+          const awayScore = m.away.score ?? '?';
+          const hf = getFlag(homeName);
+          const af = getFlag(awayName);
+
+          let scoreClass = '';
+          if (m.status === 'finished') {
+            scoreClass = m.home.score === m.away.score ? 'score-draw' : 'score-win';
+          }
+
+          const statusIcon = m.status === 'live' ? '<span class="live-badge"><span class="live-dot"></span> LIVE</span>' : '';
+          const timeBadge = m.status === 'upcoming' ? `<div class="match-time-badge">${dateStr} · ${m.statusDetail || ''}</div>` : '';
+
+          const matchData = JSON.stringify({home: homeName, away: awayName, homeScore: m.home.score, awayScore: m.away.score, group: '', date: dateStr, venue: m.venue, statusDetail: m.statusDetail});
+
+          html += `
+            ${dateLabel ? `<div class="match-date-label">${dateLabel}</div>` : ''}
+            <div class="match-card match-group-a clickable" data-match-id="${m.id}" data-match='${matchData.replace(/'/g,"&#39;")}' onclick="openMatch(${m.id})">
+              ${statusIcon}
+              <div class="match-teams">
+                <div class="match-team home">
+                  <span>${homeName}</span>
+                  <span class="match-flag">${hf}</span>
+                </div>
+                <span class="match-vs">vs</span>
+                <div class="match-team">
+                  <span class="match-flag">${af}</span>
+                  <span>${awayName}</span>
+                </div>
+              </div>
+              <div class="match-score ${scoreClass}">${homeScore} — ${awayScore}</div>
+              ${timeBadge}
+              <div class="match-arrow">→</div>
+            </div>`;
+        }
+        container.innerHTML = html;
+
+        // Update stats
+        const live = matches.filter(m => m.status === 'live').length;
+        const finished = matches.filter(m => m.status === 'finished').length;
+        const goals = matches.reduce((sum, m) => sum + (m.home.score || 0) + (m.away.score || 0), 0);
+        const teams = new Set();
+        matches.forEach(m => { teams.add(m.home.name); teams.add(m.away.name); });
+        const upcoming = matches.filter(m => m.status === 'upcoming').length;
+
+        const statNums = document.querySelectorAll('.stat-number');
+        if (statNums[0]) statNums[0].textContent = finished;
+        if (statNums[1]) statNums[1].textContent = goals;
+        if (statNums[2]) statNums[2].textContent = teams.size;
+        if (statNums[3]) statNums[3].textContent = live + upcoming;
+      } catch (e) {
+        container.innerHTML = '<p style="color:var(--text-muted)">Failed to load matches.</p>';
+      }
+    }
+
+    // Auto-refresh every 30s
+    loadMatches();
+    setInterval(loadMatches, 30000);
 
     function openMatch(id) {
       const modal = document.getElementById('matchModal');
