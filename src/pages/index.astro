@@ -202,12 +202,16 @@ import Layout from '../layouts/Layout.astro';
       return html + '</div></div>';
     }
     function setupTabs() {
-      document.querySelectorAll('.modal-tab').forEach(tab => {
+      // Scope to the currently active modal only
+      const activeModal = document.querySelector('.modal-overlay.active');
+      if (!activeModal) return;
+      activeModal.querySelectorAll('.modal-tab').forEach(tab => {
         tab.addEventListener('click', () => {
-          document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
-          document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+          activeModal.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+          activeModal.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
           tab.classList.add('active');
-          const panel = document.getElementById('tab-' + tab.dataset.tab); if (panel) panel.classList.add('active');
+          const panel = activeModal.querySelector('#tab-' + tab.dataset.tab);
+          if (panel) panel.classList.add('active');
         });
       });
     }
