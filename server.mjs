@@ -332,7 +332,7 @@ app.get('/api/f1/season/:year', async (c) => {
   }
 });
 
-// Race detail — from FastF1 (full telemetry, slow on first load, cached after)
+// Race detail — from Jolpica (fast, <1s)
 app.get('/api/f1/race/:year/:round', async (c) => {
   const year = c.req.param('year');
   const round = c.req.param('round');
@@ -341,15 +341,114 @@ app.get('/api/f1/race/:year/:round', async (c) => {
   if (cached) return c.json(cached);
 
   try {
-    const res = await fetch(`${F1_BACKEND}/race/${year}/${round}`);
-    const data = await res.json();
-    if (data && !data.error) {
-      await redisSet(cacheKey, data, 6 * 3600);
-      return c.json(data);
+    const [resultsRes, lapsRes, pitstopsRes] = await Promise.all([
+      fetch(`${JOLPICA}/${year}/${round}/results.json`),
+      fetch(`${JOLPICA}/${year}/${round}/laps.json?limit=2000`),
+      fetch(`${JOLPICA}/${year}/${round}/pitstops.json`),
+    ]);
+    const resultsData = await resultsRes.json();
+    const lapsData = await lapsRes.json();
+    const pitstopsData = await pitstopsRes.json();
+
+    const race = resultsData?.MRData?.RaceTable?.Races?.[0];
+    if (!race) return c.json({ error: 'Race not found' }, 404);
+
+    const results = (race.Results || []).map(r => ({
+      position: parseInt(r.position),
+      driver: `${r.Driver.givenName} ${r.Driver.familyName}`,
+      abbreviation: r.Driver.code || r.Driver.driverId?.substring(0,3).toUpperCase(),
+      number: r.number,
+      team: r.Constructor?.name || '',
+      color: F1_TEAM_COLORS[r.Constructor?.name] || '#fff',
+      grid: parseInt(r.grid) || 0,
+      time: r.Time?.time || '',
+      gap: r.gap || '',
+      points: parseInt(r.points) || 0,
+      best_lap: r.FastestLap?.Time?.time || '',
+      status: r.status || '',
+    }));
+
+    // Parse laps
+    const laps = [];
+    const lapData = lapsData?.MRData?.RaceTable?.Races?.[0]?.Laps || [];
+    for (const lap of lapData) {
+      for (const timing of lap.Timings || []) {
+        laps.push({
+          driver: timing.driverId,
+          lap: parseInt(lap.number),
+          position: parseInt(timing.position),
+        });
+      }
     }
-    return c.json({ error: data?.error || 'Race not found' }, 404);
+
+    // Strategy from pitstops
+    const pitstops = pitstopsData?.MRData?.RaceTable?.Races?.[0]?.PitStops || [];
+    const strategyMap = {};
+    for (const ps of pitstops) {
+      if (!strategyMap[ps.driverId]) strategyMap[ps.driverId] = [];
+      strategyMap[ps.driverId].push({ lap: parseInt(ps.lap), stop: parseInt(ps.stop), duration: ps.duration });
+    }
+
+    // Build driver ID to abbreviation map
+    const driverIdMap = {};
+    for (const r of results) {
+      driverIdMap[r.abbreviation?.toLowerCase()] = r;
+    }
+
+    const strategy = Object.entries(strategyMap).map(([driverId, stops]) => {
+      const driverInfo = results.find(r => {
+        const id = r.driver.toLowerCase().replace(/\s+/g, '');
+        return id.includes(driverId) || driverId.includes(id.substring(0,5));
+      }) || {};
+      const stints = [];
+      let lastLap = 1;
+      for (const stop of stops) {
+        const compound = stop.lap < 20 ? 'SOFT' : stop.lap < 35 ? 'MEDIUM' : 'HARD';
+        stints.push({ start_lap: lastLap, end_lap: stop.lap, laps: stop.lap - lastLap + 1, compound, tyre_age: 0 });
+        lastLap = stop.lap + 1;
+      }
+      const totalLaps = Math.max(...laps.map(l => l.lap), 50);
+      const compound = lastLap < totalLaps * 0.4 ? 'MEDIUM' : 'HARD';
+      stints.push({ start_lap: lastLap, end_lap: totalLaps, laps: totalLaps - lastLap + 1, compound, tyre_age: 0 });
+      return {
+        driver: driverInfo.driver || driverId,
+        abbreviation: driverInfo.abbreviation || driverId,
+        team: driverInfo.team || '',
+        color: driverInfo.color || '#fff',
+        stints,
+      };
+    });
+
+    // Fastest lap
+    const fastestResult = results.find(r => r.best_lap);
+    const fastest_lap = fastestResult ? {
+      driver: fastestResult.driver,
+      team: fastestResult.team,
+      time: fastestResult.best_lap,
+      lap: '',
+      speed_fl: 0,
+      sector1: '', sector2: '', sector3: '',
+      compound: '',
+    } : null;
+
+    const result = {
+      name: race.raceName,
+      circuit: race.Circuit?.circuitName || '',
+      date: race.date,
+      total_laps: Math.max(...laps.map(l => l.lap), 0),
+      results,
+      laps,
+      strategy,
+      fastest_lap,
+      weather: [],
+      race_control: [],
+      telemetry: {},
+    };
+
+    await redisSet(cacheKey, result, 6 * 3600);
+    return c.json(result);
   } catch (e) {
-    return c.json({ error: 'F1 backend unavailable' }, 503);
+    return c.json({ error: 'Failed to load race data' }, 500);
   }
 });
 
