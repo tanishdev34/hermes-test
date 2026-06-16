@@ -313,6 +313,7 @@ app.get('/api/f1/season/:year', async (c) => {
         winner: winner ? `${winner.Driver.givenName} ${winner.Driver.familyName}` : null,
         winner_team: winner?.Constructor?.name || null,
         winner_color: F1_TEAM_COLORS[winner?.Constructor?.name] || '#fff',
+        year: parseInt(year),
       };
     });
 
