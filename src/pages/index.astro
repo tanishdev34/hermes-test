@@ -260,6 +260,20 @@ import Layout from '../layouts/Layout.astro';
         const data = await res.json();
         if (data.error) { body.innerHTML = `<p style="padding:2rem;color:var(--text-muted)">${data.error}</p>`; return; }
         body.innerHTML = renderF1Race(data);
+        // Setup tabs AFTER HTML is in DOM
+        const f1Modal = document.getElementById('f1Modal');
+        f1Modal.querySelectorAll('.modal-tab').forEach(tab => {
+          tab.addEventListener('click', () => {
+            f1Modal.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+            f1Modal.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            tab.classList.add('active');
+            const panel = f1Modal.querySelector('#tab-' + tab.dataset.tab);
+            if (panel) panel.classList.add('active');
+          });
+        });
+        // Draw charts
+        if (data.laps?.length) drawLapChart(data);
+        if (data.telemetry && Object.keys(data.telemetry).length) drawTelemetryChart(data);
       } catch (e) { body.innerHTML = '<p style="padding:2rem;color:var(--text-muted)">Failed to load.</p>'; }
     }
     function closeF1() { document.getElementById('f1Modal').classList.remove('active'); document.body.style.overflow = ''; }
@@ -358,10 +372,6 @@ import Layout from '../layouts/Layout.astro';
         html += '</div></div>';
       }
 
-      // Draw charts after DOM is ready
-      if (hasLaps) setTimeout(() => drawLapChart(data), 100);
-      if (hasTelemetry) setTimeout(() => drawTelemetryChart(data), 150);
-      setupTabs();
       return html;
     }
 
