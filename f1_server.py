@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""FastF1 telemetry backend — serves race data as JSON via HTTP."""
+"""FastF1 telemetry backend — optimized for speed."""
 import json
 import sys
 import os
+import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
@@ -14,12 +15,28 @@ import pandas as pd
 
 PORT = int(os.environ.get('F1_PORT', 4000))
 
+# In-memory cache
+_cache = {}
+_cache_lock = threading.Lock()
+
+def cache_get(key):
+    with _cache_lock:
+        return _cache.get(key)
+
+def cache_set(key, val):
+    with _cache_lock:
+        _cache[key] = val
+
 def get_season_overview(year):
-    """Get all races for a season with winners."""
-    schedule = fastf1.get_event_schedule(year, include_testing=False)
+    """Get race schedule ONLY — no per-race loading. Super fast."""
+    cached = cache_get(f'season:{year}')
+    if cached:
+        return cached
+
+    schedule = fastf1.get_event_schedule(int(year), include_testing=False)
     races = []
     for _, row in schedule.iterrows():
-        race = {
+        races.append({
             'round': int(row.get('RoundNumber', 0)),
             'name': str(row.get('EventName', '')),
             'circuit': str(row.get('CircuitShortName', '')),
@@ -28,27 +45,21 @@ def get_season_overview(year):
             'location': str(row.get('Location', '')),
             'winner': None,
             'winner_team': None,
-        }
-        # Try to get winner
-        try:
-            session = fastf1.get_event(year, race['round'])
-            if session is not None:
-                race_session = session.get_race()
-                race_session.load(laps=False, telemetry=False, weather=False, messages=False)
-                if race_session.results is not None and len(race_session.results) > 0:
-                    winner = race_session.results.iloc[0]
-                    race['winner'] = f"{winner.get('FirstName', '')} {winner.get('LastName', '')}".strip()
-                    race['winner_team'] = str(winner.get('TeamName', ''))
-                    race['winner_color'] = f"#{winner.get('TeamColor', 'fff')}"
-        except Exception:
-            pass
-        races.append(race)
-    return races
+        })
+
+    result = {'races': races, 'driver_standings': []}
+    cache_set(f'season:{year}', result)
+    return result
 
 def get_race_detail(year, round_num):
     """Get full race detail with laps, telemetry, strategy."""
+    cache_key = f'race:{year}:{round_num}'
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
     try:
-        event = fastf1.get_event(year, int(round_num))
+        event = fastf1.get_event(int(year), int(round_num))
         session = event.get_race()
         session.load(laps=True, telemetry=True, weather=True, messages=True)
     except Exception as e:
@@ -84,7 +95,7 @@ def get_race_detail(year, round_num):
                 'laps': int(r.get('Laps', 0)) if pd.notna(r.get('Laps')) else 0,
             })
 
-    # Lap data
+    # Lap data (position per lap for chart)
     if session.laps is not None:
         for _, lap in session.laps.iterrows():
             lap_data = {
@@ -97,16 +108,11 @@ def get_race_detail(year, round_num):
                 'sector3': str(lap.get('Sector3Time', '')) if pd.notna(lap.get('Sector3Time')) else '',
                 'compound': str(lap.get('Compound', '')),
                 'tyre_life': int(lap.get('TyreLife', 0)) if pd.notna(lap.get('TyreLife')) else 0,
-                'speed_i1': float(lap.get('SpeedI1', 0)) if pd.notna(lap.get('SpeedI1')) else 0,
-                'speed_i2': float(lap.get('SpeedI2', 0)) if pd.notna(lap.get('SpeedI2')) else 0,
                 'speed_fl': float(lap.get('SpeedFL', 0)) if pd.notna(lap.get('SpeedFL')) else 0,
-                'speed_st': float(lap.get('SpeedST', 0)) if pd.notna(lap.get('SpeedST')) else 0,
-                'is_pit': pd.notna(lap.get('PitInTime')) or pd.notna(lap.get('PitOutTime')),
-                'is_personal_best': bool(lap.get('IsPersonalBest', False)),
             }
             result['laps'].append(lap_data)
 
-    # Strategy (stint data from laps)
+    # Strategy
     if session.laps is not None:
         drivers = session.laps['Driver'].unique()
         for driver in drivers:
@@ -122,7 +128,6 @@ def get_race_detail(year, round_num):
                     'laps': len(stint_data),
                     'tyre_age': int(stint_data['TyreLife'].max()) if len(stint_data) > 0 else 0,
                 })
-            # Get driver info from results
             driver_info = next((r for r in result['results'] if r['abbreviation'] == driver), {})
             result['strategy'].append({
                 'driver': driver_info.get('driver', driver),
@@ -151,7 +156,7 @@ def get_race_detail(year, round_num):
     except Exception:
         pass
 
-    # Weather data
+    # Weather
     if session.weather_data is not None:
         for _, w in session.weather_data.head(20).iterrows():
             result['weather'].append({
@@ -172,7 +177,7 @@ def get_race_detail(year, round_num):
                 'flag': str(msg.get('Flag', '')) if pd.notna(msg.get('Flag')) else '',
             })
 
-    # Telemetry for fastest lap (top 3 drivers)
+    # Telemetry for top 3 drivers (fastest lap)
     result['telemetry'] = {}
     for r in result['results'][:3]:
         try:
@@ -181,7 +186,6 @@ def get_race_detail(year, round_num):
             if fastest_lap is not None:
                 tel = fastest_lap.get_car_data()
                 if tel is not None and len(tel) > 0:
-                    # Sample to reduce size (every 5th point)
                     tel_sampled = tel.iloc[::5]
                     result['telemetry'][r['abbreviation']] = {
                         'speed': tel_sampled['Speed'].tolist() if 'Speed' in tel_sampled.columns else [],
@@ -194,6 +198,7 @@ def get_race_detail(year, round_num):
         except Exception:
             pass
 
+    cache_set(cache_key, result)
     return result
 
 
@@ -201,7 +206,6 @@ class F1Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
-        params = parse_qs(parsed.query)
 
         try:
             if path == '/health':
@@ -214,12 +218,11 @@ class F1Handler(BaseHTTPRequestHandler):
                 year, round_num = int(parts[2]), int(parts[3])
                 data = get_race_detail(year, round_num)
             else:
-                data = {'error': 'Not found'}
                 self.send_response(404)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
-                self.wfile.write(json.dumps(data).encode())
+                self.wfile.write(json.dumps({'error': 'Not found'}).encode())
                 return
 
             self.send_response(200)
@@ -235,7 +238,7 @@ class F1Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({'error': str(e)}).encode())
 
     def log_message(self, format, *args):
-        pass  # Suppress logs
+        pass
 
 if __name__ == '__main__':
     print(f'🏎️  FastF1 backend on port {PORT}')

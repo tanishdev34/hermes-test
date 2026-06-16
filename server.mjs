@@ -275,33 +275,63 @@ app.get('/api/standings', async (c) => {
   return c.json(data);
 });
 
-// === F1 ENDPOINTS (proxy to FastF1 Python backend) ===
+// === F1 ENDPOINTS ===
 const F1_BACKEND = 'http://127.0.0.1:4000';
+const JOLPICA = 'https://api.jolpi.ca/ergast/f1';
+const F1_TEAM_COLORS = {
+  'Red Bull':'#3671C6','Mercedes':'#27F4D2','Ferrari':'#E8002D','McLaren':'#FF8000',
+  'Aston Martin':'#229971','Alpine':'#FF87BC','Williams':'#64C4FF','RB':'#6692FF',
+  'Sauber':'#52E252','Haas':'#B6BABD','Cadillac':'#1e1e1e',
+};
 
-async function f1Proxy(path) {
-  try {
-    const res = await fetch(`${F1_BACKEND}${path}`);
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (e) { console.error('F1 backend error:', e.message); return null; }
-}
-
-// Season overview
+// Season overview — fast from Jolpica (has winners + standings)
 app.get('/api/f1/season/:year', async (c) => {
   const year = c.req.param('year');
   const cacheKey = `f1:season:${year}`;
   let cached = await redisGet(cacheKey);
   if (cached) return c.json(cached);
 
-  const data = await f1Proxy(`/season/${year}`);
-  if (data && !data.error) {
-    await redisSet(cacheKey, data, 6 * 3600);
-    return c.json(data);
+  try {
+    const [racesRes, standingsRes] = await Promise.all([
+      fetch(`${JOLPICA}/${year}/results.json?limit=500`),
+      fetch(`${JOLPICA}/${year}/driverStandings.json`),
+    ]);
+    const racesData = await racesRes.json();
+    const standingsData = await standingsRes.json();
+
+    const COUNTRY_FLAGS = {'Australia':'🇦🇺','China':'🇨🇳','Japan':'🇯🇵','United States':'🇺🇸','Canada':'🇨🇦','Italy':'🇮🇹','Monaco':'🇲🇨','Spain':'🇪🇸','Austria':'🇦🇹','United Kingdom':'🇬🇧','Hungary':'🇭🇺','Belgium':'🇧🇪','Netherlands':'🇳🇱','Singapore':'🇸🇬','Qatar':'🇶🇦','Mexico':'🇲🇽','Brazil':'🇧🇷','Saudi Arabia':'🇸🇦','Bahrain':'🇧🇭','Azerbaijan':'🇦🇿','Emilia Romagna':'🇮🇹','Miami':'🇺🇸','Las Vegas':'🇺🇸','Abu Dhabi':'🇦🇪'};
+
+    const races = (racesData?.MRData?.RaceTable?.Races || []).map(race => {
+      const winner = race.Results?.[0];
+      return {
+        round: parseInt(race.round),
+        name: race.raceName,
+        circuit: race.Circuit?.circuitName || '',
+        country: race.Circuit?.Location?.country || '',
+        date: race.date,
+        flag: COUNTRY_FLAGS[race.Circuit?.Location?.country] || '🏁',
+        winner: winner ? `${winner.Driver.givenName} ${winner.Driver.familyName}` : null,
+        winner_team: winner?.Constructor?.name || null,
+        winner_color: F1_TEAM_COLORS[winner?.Constructor?.name] || '#fff',
+      };
+    });
+
+    const driverStandings = (standingsData?.MRData?.StandingsTable?.StandingsLists?.[0]?.DriverStandings || []).map(d => ({
+      driver: `${d.Driver.givenName} ${d.Driver.familyName}`,
+      team: d.Constructors?.[0]?.name || '',
+      points: parseInt(d.points),
+      color: F1_TEAM_COLORS[d.Constructors?.[0]?.name] || '#fff',
+    }));
+
+    const result = { races, driver_standings: driverStandings };
+    await redisSet(cacheKey, result, 6 * 3600);
+    return c.json(result);
+  } catch (e) {
+    return c.json({ error: 'Failed to load F1 data' }, 500);
   }
-  return c.json({ error: 'Failed to load F1 season data' }, 500);
 });
 
-// Race detail (full telemetry)
+// Race detail — from FastF1 (full telemetry, slow on first load, cached after)
 app.get('/api/f1/race/:year/:round', async (c) => {
   const year = c.req.param('year');
   const round = c.req.param('round');
@@ -309,12 +339,17 @@ app.get('/api/f1/race/:year/:round', async (c) => {
   let cached = await redisGet(cacheKey);
   if (cached) return c.json(cached);
 
-  const data = await f1Proxy(`/race/${year}/${round}`);
-  if (data && !data.error) {
-    await redisSet(cacheKey, data, 6 * 3600);
-    return c.json(data);
+  try {
+    const res = await fetch(`${F1_BACKEND}/race/${year}/${round}`);
+    const data = await res.json();
+    if (data && !data.error) {
+      await redisSet(cacheKey, data, 6 * 3600);
+      return c.json(data);
+    }
+    return c.json({ error: data?.error || 'Race not found' }, 404);
+  } catch (e) {
+    return c.json({ error: 'F1 backend unavailable' }, 503);
   }
-  return c.json({ error: data?.error || 'Race not found' }, 404);
 });
 
 // Status
