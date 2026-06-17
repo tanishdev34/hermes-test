@@ -51,14 +51,16 @@ import Layout from '../layouts/Layout.astro';
 
   <!-- F1 Race Modal -->
   <div id="f1Modal" class="modal-overlay" onclick="if(event.target===this)closeF1()">
-    <div class="modal-content" style="max-width:1100px">
+    <div class="modal-content f1-modal-wide">
       <button class="modal-close" onclick="closeF1()">✕</button>
       <div id="f1ModalBody"></div>
     </div>
   </div>
 
   <script is:inline>
-    // === FLAGS ===
+    // ========================================================================
+    // FLAGS & CONSTANTS
+    // ========================================================================
     const FLAGS = {"Mexico":"🇲🇽","Korea Republic":"🇰🇷","Czechia":"🇨🇿","South Africa":"🇿🇦","Bosnia & Herzegovina":"🇧🇦","Canada":"🇨🇦","Qatar":"🇶🇦","Switzerland":"🇨🇭","Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Brazil":"🇧🇷","Morocco":"🇲🇦","Haiti":"🇭🇹","United States":"🇺🇸","Australia":"🇦🇺","Türkiye":"🇹🇷","Paraguay":"🇵🇾","Germany":"🇩🇪","Curaçao":"🇨🇼","Côte d'Ivoire":"🇨🇮","Ecuador":"🇪🇨","Netherlands":"🇳🇱","Japan":"🇯🇵","Sweden":"🇸🇪","Tunisia":"🇹🇳","Belgium":"🇧🇪","Egypt":"🇪🇬","IR Iran":"🇮🇷","New Zealand":"🇳🇿","Spain":"🇪🇸","Cabo Verde":"🇨🇻","Saudi Arabia":"🇸🇦","Uruguay":"🇺🇾","France":"🇫🇷","Senegal":"🇸🇳","Iraq":"🇮🇶","Norway":"🇳🇴","Argentina":"🇦🇷","Algeria":"🇩🇿","Austria":"🇦🇹","Jordan":"🇯🇴","Portugal":"🇵🇹","Congo DR":"🇨🇩","Uzbekistan":"🇺🇿","Colombia":"🇨🇴","England":"🇬🇧","Croatia":"🇭🇷","Ghana":"🇬🇭","Panama":"🇵🇦"};
     function getFlag(name) {
       if (!name) return '🏳️';
@@ -68,8 +70,13 @@ import Layout from '../layouts/Layout.astro';
       }
       return '🏳️';
     }
+    const F1_FLAGS = {"Red Bull":"🇦🇹","Mercedes":"🇩🇪","Ferrari":"🇮🇹","McLaren":"🇬🇧","Aston Martin":"🇬🇧","Alpine":"🇫🇷","Williams":"🇬🇧","RB":"🇮🇹","Sauber":"🇨🇭","Haas":"🇺🇸"};
+    const COMPOUND_COLORS = {SOFT:'#ff3333',MEDIUM:'#ffcc00',HARD:'#eeeeee',INTERMEDIATE:'#00cc66',WET:'#0066ff'};
+    const COMPOUND_TEXT = {SOFT:'#000',MEDIUM:'#000',HARD:'#222',INTERMEDIATE:'#000',WET:'#fff'};
 
-    // === WC MATCHES ===
+    // ========================================================================
+    // WORLD CUP MATCHES
+    // ========================================================================
     function renderMatchCard(m, isLive) {
       const d = new Date(m.date);
       const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -92,7 +99,6 @@ import Layout from '../layouts/Layout.astro';
         <div class="match-arrow">→</div>
       </div>`;
     }
-
     async function loadMatches() {
       const container = document.getElementById('matchesList');
       try {
@@ -143,7 +149,6 @@ import Layout from '../layouts/Layout.astro';
     }
     function closeMatch() { document.getElementById('matchModal').classList.remove('active'); document.body.style.overflow = ''; }
     document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeMatch(); closeF1(); } });
-
     function renderMatchDetail(info, d) {
       const homeName = info.home || 'Home', awayName = info.away || 'Away';
       let html = `<div class="modal-header">
@@ -201,7 +206,6 @@ import Layout from '../layouts/Layout.astro';
       return html + '</div></div>';
     }
     function setupTabs() {
-      // Scope to the currently active modal only
       const activeModal = document.querySelector('.modal-overlay.active');
       if (!activeModal) return;
       activeModal.querySelectorAll('.modal-tab').forEach(tab => {
@@ -215,8 +219,47 @@ import Layout from '../layouts/Layout.astro';
       });
     }
 
-    // === F1 ===
-    const F1_FLAGS = {"Red Bull":"🇦🇹","Mercedes":"🇩🇪","Ferrari":"🇮🇹","McLaren":"🇬🇧","Aston Martin":"🇬🇧","Alpine":"🇫🇷","Williams":"🇬🇧","RB":"🇮🇹","Sauber":"🇨🇭","Haas":"🇺🇸"};
+    // ========================================================================
+    // F1 - GLOBAL STATE
+    // ========================================================================
+    const f1State = {
+      raceData: null,           // initial race data (Jolpica or FastF1 summary)
+      lapsData: null,           // FastF1 detailed laps
+      strategyData: null,
+      weatherData: null,
+      raceControlData: null,
+      trackMapData: null,
+      telemetryIndex: null,
+      telemetryCache: {},       // { "VER_44": {...} }
+      manifest: null,
+      fastf1_status: 'unknown',
+    };
+
+    const replay = {
+      playing: false,
+      currentLap: 1,
+      maxLap: 50,
+      speed: 1,
+      highlightedDriver: null,
+      mode: 'top10',
+      timer: null,
+    };
+
+    const telState = {
+      driverA: null,
+      lapA: null,
+      driverB: null,
+      lapB: null,
+      dataA: null,
+      dataB: null,
+      cursorIdx: 0,
+      playing: false,
+      timer: null,
+    };
+
+    // ========================================================================
+    // F1 - SEASON VIEW
+    // ========================================================================
     async function loadF1() {
       const container = document.getElementById('f1Content');
       try {
@@ -226,6 +269,9 @@ import Layout from '../layouts/Layout.astro';
         let html = '<div class="f1-grid">';
         for (const race of data.races || []) {
           const flag = F1_FLAGS[race.winner_team] || '🏎️';
+          const statusBadge = race.fastf1_status === 'ready'
+            ? '<span class="f1-cache-badge cached">⚡ FastF1</span>'
+            : race.fastf1_status === 'missing' ? '<span class="f1-cache-badge">Prepare</span>' : '';
           html += `<div class="f1-race-card clickable" onclick="openF1Race(${race.year},${race.round})">
             <div class="f1-race-header">
               <span class="f1-round">R${race.round}</span>
@@ -235,10 +281,10 @@ import Layout from '../layouts/Layout.astro';
             <div class="f1-race-circuit">${race.circuit || ''}</div>
             <div class="f1-race-date">${race.date || ''}</div>
             ${race.winner ? `<div class="f1-winner"><span class="f1-winner-label">Winner</span><span class="f1-winner-name">${flag} ${race.winner}</span></div>` : '<div class="f1-upcoming">Upcoming</div>'}
+            ${statusBadge}
           </div>`;
         }
         html += '</div>';
-        // Standings
         if (data.driver_standings?.length) {
           html += '<div class="f1-standings"><h3 class="f1-standings-title">🏆 Driver Championship</h3><div class="f1-standings-list">';
           for (const [i, d] of data.driver_standings.entries()) {
@@ -249,234 +295,1181 @@ import Layout from '../layouts/Layout.astro';
         container.innerHTML = html;
       } catch (e) { container.innerHTML = '<p style="color:var(--text-muted)">Failed to load F1 data.</p>'; }
     }
+
+    // ========================================================================
+    // F1 - RACE MODAL
+    // ========================================================================
     async function openF1Race(year, round) {
       const modal = document.getElementById('f1Modal');
       const body = document.getElementById('f1ModalBody');
       modal.classList.add('active'); document.body.style.overflow = 'hidden';
       body.innerHTML = '<div class="loading"><span class="pulse-dot"></span> Loading race data...</div>';
+
+      // Stop any running replay
+      stopReplay();
+      stopTelPlayback();
+
+      // Reset state
+      Object.assign(f1State, { raceData: null, lapsData: null, strategyData: null, weatherData: null, raceControlData: null, trackMapData: null, telemetryIndex: null, telemetryCache: {}, manifest: null });
+
       try {
+        // Step 1: Get initial race data (FastF1 or Jolpica)
         const res = await fetch(`/api/f1/race/${year}/${round}`);
         const data = await res.json();
         if (data.error) { body.innerHTML = `<p style="padding:2rem;color:var(--text-muted)">${data.error}</p>`; return; }
+        f1State.raceData = data;
+        f1State.year = data.year ?? year;
+        f1State.round = data.round ?? round;
+        f1State.fastf1_status = data.fastf1_status || 'unknown';
+
+        // Step 2: Render initial modal
         body.innerHTML = renderF1Race(data);
-        // Setup tabs AFTER HTML is in DOM
-        const f1Modal = document.getElementById('f1Modal');
-        f1Modal.querySelectorAll('.modal-tab').forEach(tab => {
-          tab.addEventListener('click', () => {
-            f1Modal.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
-            f1Modal.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-            tab.classList.add('active');
-            const panel = f1Modal.querySelector('#tab-' + tab.dataset.tab);
-            if (panel) panel.classList.add('active');
-          });
-        });
-        // Draw charts
-        if (data.laps?.length) drawLapChart(data);
-        if (data.telemetry && Object.keys(data.telemetry).length) drawTelemetryChart(data);
-      } catch (e) { body.innerHTML = '<p style="padding:2rem;color:var(--text-muted)">Failed to load.</p>'; }
+        setupF1Tabs(year, round);
+
+        // Step 3: Draw lap chart with initial data
+        if (data.laps?.length) {
+          replay.maxLap = data.total_laps || Math.max(...data.laps.map(l => l.lap), 0);
+          drawLapChart();
+        }
+
+        // Step 4: If FastF1 not ready, show prepare panel and start polling
+        if (f1State.fastf1_status !== 'ready' && f1State.fastf1_status !== 'summary_ready') {
+          showPreparePanel(year, round);
+          startManifestPolling(year, round);
+          if (f1State.fastf1_status !== 'offline') {
+            startPrepare(year, round);
+          }
+        }
+      } catch (e) {
+        body.innerHTML = '<p style="padding:2rem;color:var(--text-muted)">Failed to load race data.</p>';
+      }
     }
-    function closeF1() { document.getElementById('f1Modal').classList.remove('active'); document.body.style.overflow = ''; }
 
+    function closeF1() {
+      stopReplay();
+      stopTelPlayback();
+      document.getElementById('f1Modal').classList.remove('active');
+      document.body.style.overflow = '';
+    }
+
+    // ========================================================================
+    // F1 - PROGRESSIVE LOADING
+    // ========================================================================
+    function showPreparePanel(year, round) {
+      const panel = document.getElementById('f1-prepare-panel');
+      if (!panel) return;
+      panel.innerHTML = `
+        <div class="f1-prepare-box">
+          <div class="f1-prepare-icon">🏎️</div>
+          <div class="f1-prepare-title">FastF1 Telemetry</div>
+          <div class="f1-prepare-status" id="f1-prepare-status">Checking status...</div>
+          <div class="f1-prepare-bar-wrap"><div class="f1-prepare-bar" id="f1-prepare-bar" style="width:0%"></div></div>
+          <button class="f1-prepare-btn" id="f1-prepare-btn" onclick="startPrepare(${year},${round})">Prepare Data</button>
+          <div class="f1-prepare-hint">Lap chart, results, and strategy work now. Telemetry & track map load after preparation.</div>
+        </div>`;
+      panel.style.display = 'block';
+    }
+
+    async function startPrepare(year, round) {
+      const btn = document.getElementById('f1-prepare-btn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Starting...'; }
+      try {
+        await fetch(`/api/f1/race/${year}/${round}/prepare`, { method: 'POST' });
+        startManifestPolling(year, round);
+      } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Retry'; }
+      }
+    }
+
+    let manifestPollTimer = null;
+    function startManifestPolling(year, round) {
+      if (manifestPollTimer) clearInterval(manifestPollTimer);
+      manifestPollTimer = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/f1/race/${year}/${round}/manifest`);
+          const manifest = await res.json();
+          f1State.manifest = manifest;
+          f1State.fastf1_status = manifest.status || 'unknown';
+
+          const statusEl = document.getElementById('f1-prepare-status');
+          const barEl = document.getElementById('f1-prepare-bar');
+          const btnEl = document.getElementById('f1-prepare-btn');
+
+          if (statusEl) statusEl.textContent = manifest.message || manifest.status || '';
+          if (barEl) barEl.style.width = `${(manifest.progress || 0) * 100}%`;
+
+          if (manifest.status === 'ready' || manifest.status === 'summary_ready') {
+            clearInterval(manifestPollTimer);
+            manifestPollTimer = null;
+            if (btnEl) { btnEl.textContent = '✓ Ready'; btnEl.classList.add('done'); }
+
+            // Hide prepare panel after a moment
+            setTimeout(() => {
+              const panel = document.getElementById('f1-prepare-panel');
+              if (panel) panel.style.display = 'none';
+            }, 1500);
+
+            // Reload race data with FastF1 enrichment
+            await reloadF1RaceData(year, round);
+          } else if (manifest.status === 'failed') {
+            clearInterval(manifestPollTimer);
+            manifestPollTimer = null;
+            if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Retry'; }
+            if (statusEl) statusEl.textContent = `Failed: ${manifest.message || 'Unknown error'}`;
+          }
+        } catch (e) { /* ignore poll errors */ }
+      }, 3000);
+    }
+
+    async function reloadF1RaceData(year, round) {
+      try {
+        const res = await fetch(`/api/f1/race/${year}/${round}`);
+        const data = await res.json();
+        if (data.results?.length) {
+          f1State.raceData = data;
+          // Re-render results if visible
+          const resultsPanel = document.getElementById('tab-f1-results');
+          if (resultsPanel) {
+            resultsPanel.innerHTML = renderResults(data.results);
+          }
+          // Re-render strategy
+          if (data.strategy?.length) {
+            f1State.strategyData = { strategy: data.strategy };
+            const stratPanel = document.getElementById('tab-f1-strategy');
+            if (stratPanel) stratPanel.innerHTML = renderStrategy(data.strategy);
+          }
+        }
+      } catch (e) {}
+    }
+
+    // ========================================================================
+    // F1 - TAB SETUP & ON-DEMAND LOADING
+    // ========================================================================
+    function setupF1Tabs(year, round) {
+      const f1Modal = document.getElementById('f1Modal');
+      f1Modal.querySelectorAll('.modal-tab').forEach(tab => {
+        tab.addEventListener('click', async () => {
+          f1Modal.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+          f1Modal.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+          tab.classList.add('active');
+          const panel = f1Modal.querySelector('#tab-' + tab.dataset.tab);
+          if (panel) panel.classList.add('active');
+
+          // On-demand tab loading
+          const tabName = tab.dataset.tab;
+          if (tabName === 'f1-laps') await loadLapsTab(year, round);
+          if (tabName === 'f1-strategy') await loadStrategyTab(year, round);
+          if (tabName === 'f1-telemetry') await loadTelemetryTab(year, round);
+          if (tabName === 'f1-weather') await loadWeatherTab(year, round);
+          if (tabName === 'f1-racecontrol') await loadRaceControlTab(year, round);
+          if (tabName === 'f1-trackmap') await loadTrackMapTab(year, round);
+          if (tabName === 'f1-laptimes') await loadLapTimesTab(year, round);
+        });
+      });
+    }
+
+    async function loadLapsTab(year, round) {
+      if (f1State.lapsData) return;
+      try {
+        const res = await fetch(`/api/f1/race/${year}/${round}/laps`);
+        if (res.ok) {
+          f1State.lapsData = await res.json();
+          replay.maxLap = f1State.lapsData.max_lap || replay.maxLap;
+          drawLapChart();
+          updateReplayLeaderboard();
+        }
+      } catch (e) {}
+    }
+
+    async function loadStrategyTab(year, round) {
+      if (f1State.strategyData) return;
+      try {
+        const res = await fetch(`/api/f1/race/${year}/${round}/strategy`);
+        if (res.ok) {
+          f1State.strategyData = await res.json();
+          const panel = document.getElementById('tab-f1-strategy');
+          if (panel && f1State.strategyData.strategy?.length) {
+            panel.innerHTML = renderStrategy(f1State.strategyData.strategy);
+          }
+        }
+      } catch (e) {}
+    }
+
+    async function loadTelemetryTab(year, round) {
+      if (f1State.telemetryIndex) return;
+      try {
+        const res = await fetch(`/api/f1/race/${year}/${round}/telemetry-index`);
+        if (res.ok) {
+          f1State.telemetryIndex = await res.json();
+          renderTelemetrySelectors(year, round);
+        } else {
+          const panel = document.getElementById('tab-f1-telemetry');
+          if (panel) panel.innerHTML = '<div class="f1-empty-state">Telemetry not available. Prepare FastF1 data first.</div>';
+        }
+      } catch (e) {
+        const panel = document.getElementById('tab-f1-telemetry');
+        if (panel) panel.innerHTML = '<div class="f1-empty-state">Telemetry not available.</div>';
+      }
+    }
+
+    async function loadWeatherTab(year, round) {
+      if (f1State.weatherData) return;
+      try {
+        const res = await fetch(`/api/f1/race/${year}/${round}/weather`);
+        if (res.ok) {
+          f1State.weatherData = await res.json();
+          const panel = document.getElementById('tab-f1-weather');
+          if (panel) panel.innerHTML = renderWeather(f1State.weatherData.weather || []);
+        }
+      } catch (e) {}
+    }
+
+    async function loadRaceControlTab(year, round) {
+      if (f1State.raceControlData) return;
+      try {
+        const res = await fetch(`/api/f1/race/${year}/${round}/race-control`);
+        if (res.ok) {
+          f1State.raceControlData = await res.json();
+          const panel = document.getElementById('tab-f1-racecontrol');
+          if (panel) panel.innerHTML = renderRaceControl(f1State.raceControlData.messages || []);
+        }
+      } catch (e) {}
+    }
+
+    async function loadTrackMapTab(year, round) {
+      if (f1State.trackMapData) return;
+      try {
+        const res = await fetch(`/api/f1/race/${year}/${round}/track-map`);
+        if (res.ok) {
+          f1State.trackMapData = await res.json();
+          drawTrackMap();
+        } else {
+          const canvas = document.getElementById('f1TrackCanvas');
+          if (canvas) {
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#888'; ctx.font = '14px Inter'; ctx.textAlign = 'center';
+            ctx.fillText('Track map not available. Prepare FastF1 data first.', canvas.width/2, canvas.height/2);
+          }
+        }
+      } catch (e) {}
+    }
+
+    async function loadLapTimesTab(year, round) {
+      if (!f1State.lapsData) await loadLapsTab(year, round);
+      drawLapTimes();
+    }
+
+    // ========================================================================
+    // F1 - RENDER FUNCTIONS
+    // ========================================================================
     function renderF1Race(data) {
-      let html = `<div class="modal-header"><h2 class="section-title" style="font-size:1.5rem">${data.name || 'Race'}</h2><p class="modal-venue">${data.circuit || ''} · ${data.date || ''}</p></div>`;
-      const hasResults = data.results?.length, hasLaps = data.laps?.length, hasStrategy = data.strategy?.length;
-      const hasTelemetry = data.telemetry && Object.keys(data.telemetry).length > 0;
-      const hasWeather = data.weather?.length > 0;
-      const hasRC = data.race_control?.length > 0;
-
-      html += `<div class="modal-tabs">
-        ${hasResults ? '<button class="modal-tab active" data-tab="f1-results">🏁 Results</button>' : ''}
-        ${hasLaps ? '<button class="modal-tab" data-tab="f1-laps">📈 Lap Chart</button>' : ''}
-        ${hasStrategy ? '<button class="modal-tab" data-tab="f1-strategy">🛞 Strategy</button>' : ''}
-        ${hasTelemetry ? '<button class="modal-tab" data-tab="f1-telemetry">📊 Telemetry</button>' : ''}
-        ${data.fastest_lap ? '<button class="modal-tab" data-tab="f1-fastest">⚡ Fastest Lap</button>' : ''}
-        ${hasWeather ? '<button class="modal-tab" data-tab="f1-weather">🌤️ Weather</button>' : ''}
-        ${hasRC ? '<button class="modal-tab" data-tab="f1-racecontrol">📻 Race Control</button>' : ''}
+      let html = `<div class="modal-header">
+        <h2 class="section-title" style="font-size:1.5rem">${data.name || 'Race'}</h2>
+        <p class="modal-venue">${data.circuit || ''} · ${data.date || ''}</p>
+        <div class="f1-source-badge">${data.fastf1_source === 'fastf1' ? '⚡ FastF1 Data' : '📊 Jolpica Fallback'}</div>
       </div>`;
 
-      // Results
-      if (hasResults) {
-        html += '<div class="tab-panel active" id="tab-f1-results"><table class="f1-results-table"><thead><tr><th>Pos</th><th style="text-align:left">Driver</th><th>Team</th><th>Grid</th><th>Time/Gap</th><th>Pts</th></tr></thead><tbody>';
-        for (const r of data.results) {
-          const posClass = r.position <= 3 ? `f1-pos-${r.position}` : '';
-          const gridDiff = r.grid && r.position ? r.grid - r.position : 0;
-          const gridStr = r.grid ? `${r.grid}${gridDiff > 0 ? ` <span style="color:var(--green)">▲${gridDiff}</span>` : gridDiff < 0 ? ` <span style="color:var(--red)">▼${Math.abs(gridDiff)}</span>` : ''}` : '-';
-          html += `<tr class="${posClass}"><td class="f1-result-pos">${r.position}</td><td style="text-align:left"><span class="f1-driver-num" style="color:${r.color||'#fff'}">${r.number||''}</span> <strong>${r.driver}</strong></td><td class="f1-team-name">${r.team}</td><td>${gridStr}</td><td>${r.gap||r.time||r.status||''}</td><td>${r.points||''}</td></tr>`;
-        }
-        html += '</tbody></table></div>';
-      }
+      html += `<div id="f1-prepare-panel" style="display:none"></div>`;
 
-      // Lap chart
-      if (hasLaps) {
-        html += '<div class="tab-panel" id="tab-f1-laps"><div class="f1-lap-chart">';
-        html += '<div class="f1-lap-legend">' + (data.results||[]).slice(0,10).map(r => `<span style="color:${r.color||'#fff'}">● ${r.abbreviation||r.driver}</span>`).join(' ') + '</div>';
-        html += '<canvas id="f1LapCanvas" width="1000" height="400"></canvas>';
-        html += '</div></div>';
-      }
+      html += `<div class="modal-tabs">
+        <button class="modal-tab active" data-tab="f1-results">🏁 Results</button>
+        <button class="modal-tab" data-tab="f1-laps">📈 Race Replay</button>
+        <button class="modal-tab" data-tab="f1-laptimes">⏱️ Lap Times</button>
+        <button class="modal-tab" data-tab="f1-strategy">🛞 Strategy</button>
+        <button class="modal-tab" data-tab="f1-telemetry">📊 Telemetry</button>
+        <button class="modal-tab" data-tab="f1-trackmap">🗺️ Track Map</button>
+        <button class="modal-tab" data-tab="f1-weather">🌤️ Weather</button>
+        <button class="modal-tab" data-tab="f1-racecontrol">📻 Race Control</button>
+      </div>`;
 
-      // Strategy
-      if (hasStrategy) {
-        html += '<div class="tab-panel" id="tab-f1-strategy"><div class="f1-strategy-grid">';
-        for (const s of data.strategy) {
-          html += `<div class="f1-strategy-row"><span class="f1-strategy-driver" style="color:${s.color||'#fff'}">${s.abbreviation||s.driver}</span><div class="f1-stints">`;
-          for (const stint of s.stints || []) {
-            const width = Math.max(15, (stint.laps || 10) * 4);
-            const color = {'SOFT':'#ff3333','MEDIUM':'#ffcc00','HARD':'#eeeeee','INTERMEDIATE':'#00cc66','WET':'#0066ff'}[stint.compound] || '#888';
-            html += `<div class="f1-stint" style="width:${width}px;background:${color}" title="${stint.compound} L${stint.start_lap}-${stint.end_lap} (tyre age: ${stint.tyre_age})">${stint.compound?.charAt(0)||'?'}</div>`;
-          }
-          html += '</div></div>';
-        }
-        html += '</div></div>';
-      }
+      // Results panel (active by default)
+      html += `<div class="tab-panel active" id="tab-f1-results">${renderResults(data.results || [])}</div>`;
 
-      // Telemetry
-      if (hasTelemetry) {
-        html += '<div class="tab-panel" id="tab-f1-telemetry">';
-        html += '<div class="f1-lap-legend">' + Object.keys(data.telemetry).map(d => `<span style="color:${(data.results||[]).find(r=>r.abbreviation===d)?.color||'#fff'}">● ${d}</span>`).join(' ') + '</div>';
-        html += '<canvas id="f1TelCanvas" width="1000" height="500"></canvas>';
-        html += '</div>';
-      }
+      // Race Replay panel (canvas + leaderboard)
+      html += `<div class="tab-panel" id="tab-f1-laps">
+        <div class="f1-replay-controls">
+          <button class="f1-replay-btn" id="replay-play" onclick="toggleReplay()">▶ Play</button>
+          <button class="f1-replay-btn" onclick="resetReplay()">⟲ Reset</button>
+          <div class="f1-replay-lap-display">
+            <span class="f1-replay-label">LAP</span>
+            <span class="f1-replay-current" id="replay-current-lap">1</span>
+            <span class="f1-replay-label">/</span>
+            <span class="f1-replay-max" id="replay-max-lap">${data.total_laps || '—'}</span>
+          </div>
+          <input type="range" min="1" max="${data.total_laps || 50}" value="1" class="f1-replay-scrubber" id="replay-scrubber" oninput="scrubReplay(this.value)">
+          <div class="f1-replay-speed">
+            <button class="f1-speed-btn" onclick="setReplaySpeed(0.5)">0.5x</button>
+            <button class="f1-speed-btn active" onclick="setReplaySpeed(1)">1x</button>
+            <button class="f1-speed-btn" onclick="setReplaySpeed(2)">2x</button>
+            <button class="f1-speed-btn" onclick="setReplaySpeed(4)">4x</button>
+          </div>
+        </div>
+        <div class="f1-replay-mode">
+          <button class="f1-filter-btn active" data-mode="top10" onclick="setReplayMode('top10')">Top 10</button>
+          <button class="f1-filter-btn" data-mode="all" onclick="setReplayMode('all')">All</button>
+          <input type="text" class="f1-driver-search" id="f1-driver-search" placeholder="Search driver..." oninput="searchDriver(this.value)">
+        </div>
+        <div class="f1-replay-layout">
+          <div class="f1-replay-chart-wrap">
+            <div class="f1-lap-legend" id="f1-lap-legend"></div>
+            <canvas id="f1LapCanvas" width="800" height="380"></canvas>
+            <div id="f1-replay-tooltip" class="f1-tooltip" style="display:none"></div>
+          </div>
+          <div class="f1-replay-leaderboard" id="f1-replay-leaderboard"></div>
+        </div>
+      </div>`;
 
-      // Fastest lap
-      if (data.fastest_lap) {
-        const fl = data.fastest_lap;
-        html += `<div class="tab-panel" id="tab-f1-fastest"><div class="f1-fastest-card">
-          <div class="f1-fastest-driver">${fl.driver}</div>
-          <div class="f1-fastest-time">${fl.time}</div>
-          <div class="f1-fastest-info">${fl.team} · Lap ${fl.lap} · ${fl.compound||''} · ${fl.speed_fl ? fl.speed_fl + ' km/h' : ''}</div>
-          ${fl.sector1 ? `<div style="margin-top:1rem;display:flex;gap:1.5rem;justify-content:center;font-size:0.9rem"><span>S1: <strong>${fl.sector1}</strong></span><span>S2: <strong>${fl.sector2}</strong></span><span>S3: <strong>${fl.sector3}</strong></span></div>` : ''}
-        </div></div>`;
-      }
+      // Lap Times panel
+      html += `<div class="tab-panel" id="tab-f1-laptimes">
+        <div class="f1-laptimes-controls">
+          <label class="f1-filter-toggle"><input type="checkbox" id="lt-show-pits" onchange="drawLapTimes()"> Show pit laps</label>
+          <label class="f1-filter-toggle"><input type="checkbox" id="lt-show-deleted" onchange="drawLapTimes()"> Show deleted laps</label>
+          <input type="text" class="f1-driver-search" id="lt-driver-search" placeholder="Search driver..." oninput="drawLapTimes()">
+        </div>
+        <canvas id="f1LapTimesCanvas" width="900" height="400"></canvas>
+        <div id="f1-laptimes-tooltip" class="f1-tooltip" style="display:none"></div>
+      </div>`;
 
-      // Weather
-      if (hasWeather) {
-        const w = data.weather;
-        const avg = (arr, key) => (arr.reduce((s, x) => s + (x[key]||0), 0) / arr.length).toFixed(1);
-        html += `<div class="tab-panel" id="tab-f1-weather"><div class="f1-weather-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:1rem">
-          <div class="stat-card"><div class="stat-number" style="color:var(--red)">${avg(w,'air_temp')}°</div><div class="stat-label">Air Temp</div></div>
-          <div class="stat-card"><div class="stat-number" style="color:var(--gold)">${avg(w,'track_temp')}°</div><div class="stat-label">Track Temp</div></div>
-          <div class="stat-card"><div class="stat-number" style="color:var(--cyan)">${avg(w,'humidity')}%</div><div class="stat-label">Humidity</div></div>
-          <div class="stat-card"><div class="stat-number" style="color:var(--purple)">${avg(w,'wind_speed')} m/s</div><div class="stat-label">Wind Speed</div></div>
-          <div class="stat-card"><div class="stat-number" style="color:${w.some(x=>x.rainfall)?'var(--blue)':'var(--text-dim)'}">${w.some(x=>x.rainfall)?'🌧️ Yes':'☀️ No'}</div><div class="stat-label">Rainfall</div></div>
-        </div></div>`;
-      }
+      // Strategy panel
+      html += `<div class="tab-panel" id="tab-f1-strategy">${renderStrategy(data.strategy || [])}</div>`;
 
-      // Race Control
-      if (hasRC) {
-        html += '<div class="tab-panel" id="tab-f1-racecontrol"><div class="event-list">';
-        for (const msg of data.race_control) {
-          const flagIcon = {'GREEN':'🟢','YELLOW':'🟡','DOUBLE YELLOW':'🟡🟡','RED':'🔴','CHEQUERED':'🏁'}[msg.flag] || '📻';
-          html += `<div class="event-row"><span class="event-icon">${flagIcon}</span><div class="event-detail"><div class="event-desc">${msg.message}</div></div></div>`;
-        }
-        html += '</div></div>';
-      }
+      // Telemetry panel
+      html += `<div class="tab-panel" id="tab-f1-telemetry">
+        <div class="f1-telemetry-controls" id="f1-telemetry-controls"></div>
+        <div class="f1-telemetry-charts">
+          <canvas id="f1TelCanvas" width="900" height="500"></canvas>
+          <div id="f1-telemetry-tooltip" class="f1-tooltip" style="display:none"></div>
+        </div>
+      </div>`;
+
+      // Track Map panel
+      html += `<div class="tab-panel" id="tab-f1-trackmap">
+        <div class="f1-track-controls">
+          <button class="f1-replay-btn" id="track-play" onclick="toggleTrackPlay()">▶ Play</button>
+          <button class="f1-replay-btn" onclick="resetTrackPlay()">⟲ Reset</button>
+          <input type="range" min="0" max="100" value="0" class="f1-replay-scrubber" id="track-scrubber" oninput="scrubTrack(this.value)">
+        </div>
+        <canvas id="f1TrackCanvas" width="600" height="600"></canvas>
+      </div>`;
+
+      // Weather panel
+      html += `<div class="tab-panel" id="tab-f1-weather">${renderWeather(data.weather || [])}</div>`;
+
+      // Race Control panel
+      html += `<div class="tab-panel" id="tab-f1-racecontrol">${renderRaceControl(data.race_control || [])}</div>`;
 
       return html;
     }
 
-    function drawLapChart(data) {
+    function renderResults(results) {
+      if (!results.length) return '<div class="f1-empty-state">No results available.</div>';
+      let html = '<table class="f1-results-table"><thead><tr><th>Pos</th><th style="text-align:left">Driver</th><th>Team</th><th>Grid</th><th>Time/Gap</th><th>Pts</th></tr></thead><tbody>';
+      for (const r of results) {
+        const posClass = r.position <= 3 ? `f1-pos-${r.position}` : '';
+        const gridDiff = r.grid_position && r.position ? r.grid_position - r.position : r.grid && r.position ? r.grid - r.position : 0;
+        const gridVal = r.grid_position || r.grid || 0;
+        const gridStr = gridVal ? `${gridVal}${gridDiff > 0 ? ` <span style="color:var(--green)">▲${gridDiff}</span>` : gridDiff < 0 ? ` <span style="color:var(--red)">▼${Math.abs(gridDiff)}</span>` : ''}` : '-';
+        html += `<tr class="${posClass}"><td class="f1-result-pos">${r.position}</td><td style="text-align:left"><span class="f1-driver-num" style="color:${r.team_color||r.color||'#fff'}">${r.driver_number||r.number||''}</span> <strong>${r.full_name||r.driver}</strong></td><td class="f1-team-name">${r.team_name||r.team}</td><td>${gridStr}</td><td>${r.gap||r.time||r.status||''}</td><td>${r.points||''}</td></tr>`;
+      }
+      return html + '</tbody></table>';
+    }
+
+    function renderStrategy(strategy) {
+      if (!strategy.length) return '<div class="f1-empty-state">No strategy data.</div>';
+      let html = '<div class="f1-strategy-grid">';
+      for (const s of strategy) {
+        html += `<div class="f1-strategy-row"><span class="f1-strategy-driver" style="color:${s.color||'#fff'}">${s.abbreviation||s.driver}</span><div class="f1-stints">`;
+        for (const stint of s.stints || []) {
+          const width = Math.max(20, (stint.laps || 10) * 5);
+          const color = COMPOUND_COLORS[stint.compound] || '#888';
+          const textColor = COMPOUND_TEXT[stint.compound] || '#000';
+          html += `<div class="f1-stint" style="width:${width}px;background:${color};color:${textColor}" title="${stint.compound} L${stint.start_lap}-${stint.end_lap} (tyre age: ${stint.tyre_age_end||stint.tyre_age||0})">${stint.compound?.charAt(0)||'?'}</div>`;
+        }
+        html += '</div></div>';
+      }
+      return html + '</div>';
+    }
+
+    function renderWeather(weather) {
+      if (!weather.length) return '<div class="f1-empty-state">No weather data.</div>';
+      const avg = (arr, key) => { const vals = arr.filter(x => x[key]).map(x => x[key]); return vals.length ? (vals.reduce((a,b) => a+b, 0) / vals.length).toFixed(1) : '—'; };
+      const hasRain = weather.some(w => w.rainfall);
+      return `<div class="f1-weather-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:1rem">
+        <div class="stat-card"><div class="stat-number" style="color:var(--red)">${avg(weather,'air_temp')}°</div><div class="stat-label">Air Temp</div></div>
+        <div class="stat-card"><div class="stat-number" style="color:var(--gold)">${avg(weather,'track_temp')}°</div><div class="stat-label">Track Temp</div></div>
+        <div class="stat-card"><div class="stat-number" style="color:var(--cyan)">${avg(weather,'humidity')}%</div><div class="stat-label">Humidity</div></div>
+        <div class="stat-card"><div class="stat-number" style="color:var(--purple)">${avg(weather,'wind_speed')} m/s</div><div class="stat-label">Wind Speed</div></div>
+        <div class="stat-card"><div class="stat-number" style="color:${hasRain?'var(--blue)':'var(--text-dim)'}">${hasRain?'🌧️ Yes':'☀️ No'}</div><div class="stat-label">Rainfall</div></div>
+      </div>`;
+    }
+
+    function renderRaceControl(messages) {
+      if (!messages.length) return '<div class="f1-empty-state">No race control messages.</div>';
+      let html = '<div class="event-list">';
+      for (const msg of messages) {
+        const flagIcon = {'GREEN':'🟢','YELLOW':'🟡','DOUBLE YELLOW':'🟡🟡','RED':'🔴','CHEQUERED':'🏁'}[msg.flag] || '📻';
+        const lapStr = msg.lap ? `L${msg.lap}` : '';
+        html += `<div class="event-row"><span class="event-time">${lapStr}</span><span class="event-icon">${flagIcon}</span><div class="event-detail"><div class="event-desc">${msg.message}</div></div></div>`;
+      }
+      return html + '</div>';
+    }
+
+    // ========================================================================
+    // F1 - RACE REPLAY (Interactive Lap Chart)
+    // ========================================================================
+    function drawLapChart() {
       const canvas = document.getElementById('f1LapCanvas');
       if (!canvas) return;
+
+      // Resize for crisp rendering
+      const rect = canvas.parentElement?.getBoundingClientRect();
+      if (rect && rect.width > 100) {
+        canvas.width = Math.floor(rect.width);
+        canvas.height = 380;
+      }
+
       const ctx = canvas.getContext('2d');
       const w = canvas.width, h = canvas.height;
-      const drivers = (data.results || []).slice(0, 10);
-      const laps = data.laps || [];
-      if (!laps.length) return;
-      const maxLap = Math.max(...laps.map(l => l.lap));
-      const pad = {t:20,r:80,b:30,l:40};
+      const data = f1State.lapsData || f1State.raceData;
+      if (!data) return;
+
+      const allLaps = data.laps || [];
+      const drivers = data.drivers || (data.results || []).map(r => ({
+        abbr: r.abbreviation || '', number: r.driver_number || r.number || '',
+        name: r.full_name || r.driver || '', team: r.team_name || r.team || '', color: r.team_color || r.color || '#fff'
+      }));
+      const driverMap = {};
+      for (const d of drivers) driverMap[d.abbr] = d;
+
+      // Filter drivers based on mode
+      let activeDrivers = drivers;
+      if (replay.mode === 'top10') {
+        const top10 = new Set();
+        for (const l of allLaps) {
+          if (l.position <= 10) top10.add(l.driver);
+        }
+        activeDrivers = drivers.filter(d => top10.has(d.abbr));
+      }
+      if (replay.highlightedDriver) {
+        activeDrivers = drivers.filter(d => d.abbr === replay.highlightedDriver);
+        // Keep all for context but highlight only one
+        activeDrivers = drivers;
+      }
+
+      const maxPos = replay.mode === 'top10' ? 10 : Math.max(...allLaps.map(l => l.position), drivers.length);
+      const maxLap = replay.maxLap || Math.max(...allLaps.map(l => l.lap), 1);
+      const pad = {t:20, r:80, b:30, l:40};
+
       ctx.fillStyle = '#0a0a0f'; ctx.fillRect(0,0,w,h);
+
       // Grid
       ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
-      for (let p = 1; p <= 10; p++) {
-        const y = pad.t + ((p-1)/9)*(h-pad.t-pad.b);
+      for (let p = 1; p <= maxPos; p++) {
+        const y = pad.t + ((p-1)/((maxPos-1) || 1))*(h-pad.t-pad.b);
         ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(w-pad.r,y); ctx.stroke();
         ctx.fillStyle = '#555'; ctx.font = '11px Inter,sans-serif'; ctx.textAlign = 'right';
         ctx.fillText(p, pad.l-8, y+4);
       }
-      // Lap numbers on x axis
-      const lapStep = Math.ceil(maxLap / 10);
+      // Lap numbers
+      const lapStep = Math.max(1, Math.ceil(maxLap / 12));
       for (let l = 1; l <= maxLap; l += lapStep) {
-        const x = pad.l + ((l-1)/maxLap)*(w-pad.l-pad.r);
+        const x = pad.l + ((l-1)/(maxLap || 1))*(w-pad.l-pad.r);
         ctx.fillStyle = '#555'; ctx.font = '10px Inter,sans-serif'; ctx.textAlign = 'center';
         ctx.fillText(l, x, h - 8);
       }
-      // Draw lines
-      drivers.forEach((driver) => {
-        ctx.strokeStyle = driver.color || '#fff'; ctx.lineWidth = 2.5; ctx.beginPath();
+
+      // Current lap indicator
+      if (replay.currentLap > 0) {
+        const cx = pad.l + ((replay.currentLap-1)/(maxLap || 1))*(w-pad.l-pad.r);
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 2; ctx.setLineDash([4,4]);
+        ctx.beginPath(); ctx.moveTo(cx, pad.t); ctx.lineTo(cx, h-pad.b); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Draw lines per driver
+      const lapsByDriver = {};
+      for (const l of allLaps) {
+        if (!lapsByDriver[l.driver]) lapsByDriver[l.driver] = [];
+        lapsByDriver[l.driver].push(l);
+      }
+
+      for (const driver of activeDrivers) {
+        const dl = lapsByDriver[driver.abbr] || [];
+        if (!dl.length) continue;
+
+        const isHighlighted = !replay.highlightedDriver || replay.highlightedDriver === driver.abbr;
+        const alpha = isHighlighted ? 1 : 0.15;
+
+        ctx.strokeStyle = hexToRGBA(driver.color || '#fff', alpha);
+        ctx.lineWidth = isHighlighted ? 2.5 : 1;
+        ctx.beginPath();
         let started = false;
-        for (const l of laps) {
-          if (l.driver === driver.abbreviation) {
-            const x = pad.l + ((l.lap-1)/maxLap)*(w-pad.l-pad.r);
-            const y = pad.t + ((l.position-1)/9)*(h-pad.t-pad.b);
-            if (!started) { ctx.moveTo(x,y); started = true; } else ctx.lineTo(x,y);
-          }
+        for (const l of dl) {
+          if (l.lap > replay.currentLap) break;
+          if (!l.position) continue;
+          const x = pad.l + ((l.lap-1)/(maxLap || 1))*(w-pad.l-pad.r);
+          const y = pad.t + ((l.position-1)/((maxPos-1) || 1))*(h-pad.t-pad.b);
+          if (!started) { ctx.moveTo(x,y); started = true; } else ctx.lineTo(x,y);
         }
         ctx.stroke();
-      });
-      // Driver labels
-      ctx.font = '10px Inter,sans-serif'; ctx.textAlign = 'left';
-      drivers.forEach((driver) => {
-        const lastLap = laps.filter(l => l.driver === driver.abbreviation).pop();
-        if (lastLap) {
-          const y = pad.t + ((lastLap.position-1)/9)*(h-pad.t-pad.b);
-          ctx.fillStyle = driver.color || '#fff';
-          ctx.fillText(driver.abbreviation || driver.driver.split(' ').pop(), w-pad.r+5, y+4);
+
+        // Label at current position
+        if (isHighlighted) {
+          const lastVisible = dl.filter(l => l.lap <= replay.currentLap).pop();
+          if (lastVisible) {
+            const y = pad.t + ((lastVisible.position-1)/(maxPos-1))*(h-pad.t-pad.b);
+            ctx.fillStyle = driver.color || '#fff';
+            ctx.font = 'bold 10px Inter,sans-serif'; ctx.textAlign = 'left';
+            ctx.fillText(driver.abbr, w-pad.r+5, y+4);
+          }
         }
-      });
+      }
+
+      // Legend
+      const replayPoints = [];
+      for (const driver of activeDrivers) {
+        const dl = lapsByDriver[driver.abbr] || [];
+        const targetLap = dl.find(l => l.lap === replay.currentLap);
+        if (targetLap && targetLap.position) {
+          const x = pad.l + ((targetLap.lap-1)/(maxLap || 1))*(w-pad.l-pad.r);
+          const y = pad.t + ((targetLap.position-1)/((maxPos-1) || 1))*(h-pad.t-pad.b);
+          replayPoints.push({
+            x,
+            y,
+            driver: driver.abbr,
+            name: driver.name || driver.abbr,
+            team: driver.team || '',
+            position: targetLap.position,
+            lap: targetLap.lap,
+            lap_time: targetLap.lap_time,
+            compound: targetLap.compound,
+          });
+        }
+      }
+      canvas._replayPoints = replayPoints;
+
+      const legend = document.getElementById('f1-lap-legend');
+      if (legend) {
+        legend.innerHTML = activeDrivers.slice(0, 20).map(d =>
+          `<span class="f1-legend-item ${replay.highlightedDriver === d.abbr ? 'highlighted' : ''}" style="color:${d.color||'#fff'};cursor:pointer" onclick="highlightDriver('${d.abbr}')">● ${d.abbr}</span>`
+        ).join(' ');
+      }
+
+      if (!canvas._replayHoverAttached) {
+        canvas._replayHoverAttached = true;
+        canvas.addEventListener('mousemove', (e) => {
+          const tooltip = document.getElementById('f1-replay-tooltip');
+          if (!tooltip) return;
+          const pts = canvas._replayPoints || [];
+          if (!pts.length) { tooltip.style.display = 'none'; return; }
+          const rect = canvas.getBoundingClientRect();
+          const mx = e.clientX - rect.left;
+          const my = e.clientY - rect.top;
+          let closest = null;
+          let closestDist = 24;
+          for (const pt of pts) {
+            const dist = Math.hypot(mx - pt.x, my - pt.y);
+            if (dist < closestDist) {
+              closestDist = dist;
+              closest = pt;
+            }
+          }
+          if (closest) {
+            tooltip.style.display = 'block';
+            tooltip.style.left = (mx + 12) + 'px';
+            tooltip.style.top = (my - 12) + 'px';
+            tooltip.innerHTML = `<strong>${closest.driver}</strong> ${closest.name ? '— ' + closest.name : ''}<br>P${closest.position} · Lap ${closest.lap}<br>${closest.lap_time || '—'}${closest.compound ? ' · ' + closest.compound : ''}`;
+          } else {
+            tooltip.style.display = 'none';
+          }
+        });
+        canvas.addEventListener('mouseleave', () => {
+          const tooltip = document.getElementById('f1-replay-tooltip');
+          if (tooltip) tooltip.style.display = 'none';
+        });
+      }
+
+      updateReplayLeaderboard();
     }
 
-    function drawTelemetryChart(data) {
-      const canvas = document.getElementById('f1TelCanvas');
+    function updateReplayLeaderboard() {
+      const container = document.getElementById('f1-replay-leaderboard');
+      if (!container) return;
+      const data = f1State.lapsData || f1State.raceData;
+      if (!data?.laps) { container.innerHTML = ''; return; }
+
+      const drivers = data.drivers || (data.results || []).map(r => ({
+        abbr: r.abbreviation || '', number: r.driver_number || r.number || '',
+        name: r.full_name || r.driver || '', team: r.team_name || r.team || '', color: r.team_color || r.color || '#fff'
+      }));
+      const driverMap = {};
+      for (const d of drivers) driverMap[d.abbr] = d;
+
+      // Find position at current lap
+      const positions = [];
+      for (const l of data.laps) {
+        if (l.lap === replay.currentLap && l.position) {
+          positions.push({ driver: l.driver, position: l.position, lap_time: l.lap_time, compound: l.compound });
+        }
+      }
+      positions.sort((a, b) => a.position - b.position);
+
+      let html = '<div class="f1-lb-header">POSITIONS — LAP ' + replay.currentLap + '</div>';
+      for (const p of positions) {
+        const d = driverMap[p.driver] || {};
+        const highlighted = replay.highlightedDriver === p.driver ? ' highlighted' : '';
+        const compColor = COMPOUND_COLORS[p.compound] || '#666';
+        html += `<div class="f1-lb-row${highlighted}" onclick="highlightDriver('${p.driver}')">
+          <span class="f1-lb-pos">${p.position}</span>
+          <span class="f1-lb-name" style="color:${d.color||'#fff'}">${p.driver}</span>
+          <span class="f1-lb-time">${p.lap_time || ''}</span>
+          <span class="f1-lb-compound" style="background:${compColor}">${p.compound?.charAt(0)||''}</span>
+        </div>`;
+      }
+      container.innerHTML = html;
+
+      // Update lap display
+      const cl = document.getElementById('replay-current-lap');
+      const ml = document.getElementById('replay-max-lap');
+      if (cl) cl.textContent = replay.currentLap;
+      if (ml) ml.textContent = replay.maxLap;
+    }
+
+    function toggleReplay() {
+      if (replay.playing) {
+        stopReplay();
+      } else {
+        replay.playing = true;
+        const btn = document.getElementById('replay-play');
+        if (btn) btn.textContent = '⏸ Pause';
+        const interval = 600 / replay.speed;
+        replay.timer = setInterval(() => {
+          if (replay.currentLap >= replay.maxLap) { stopReplay(); return; }
+          replay.currentLap++;
+          const scrubber = document.getElementById('replay-scrubber');
+          if (scrubber) scrubber.value = replay.currentLap;
+          drawLapChart();
+        }, interval);
+      }
+    }
+
+    function stopReplay() {
+      replay.playing = false;
+      if (replay.timer) { clearInterval(replay.timer); replay.timer = null; }
+      const btn = document.getElementById('replay-play');
+      if (btn) btn.textContent = '▶ Play';
+    }
+
+    function resetReplay() {
+      stopReplay();
+      replay.currentLap = 1;
+      const scrubber = document.getElementById('replay-scrubber');
+      if (scrubber) scrubber.value = 1;
+      drawLapChart();
+    }
+
+    function scrubReplay(val) {
+      replay.currentLap = parseInt(val);
+      drawLapChart();
+    }
+
+    function setReplaySpeed(speed) {
+      replay.speed = speed;
+      document.querySelectorAll('.f1-speed-btn').forEach(b => b.classList.toggle('active', parseFloat(b.textContent) === speed));
+      if (replay.playing) { stopReplay(); toggleReplay(); }
+    }
+
+    function setReplayMode(mode) {
+      replay.mode = mode;
+      document.querySelectorAll('.f1-filter-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+      drawLapChart();
+    }
+
+    function highlightDriver(abbr) {
+      replay.highlightedDriver = replay.highlightedDriver === abbr ? null : abbr;
+      drawLapChart();
+      // Re-draw lap times if visible
+      const ltPanel = document.getElementById('tab-f1-laptimes');
+      if (ltPanel?.classList.contains('active')) drawLapTimes();
+    }
+
+    function searchDriver(query) {
+      if (!query) { replay.highlightedDriver = null; drawLapChart(); return; }
+      const q = query.toUpperCase();
+      const data = f1State.lapsData || f1State.raceData;
+      const drivers = data?.drivers || data?.results || [];
+      const match = drivers.find(d => (d.abbr || d.abbreviation || '').includes(q) || (d.name || d.driver || d.full_name || '').toUpperCase().includes(q));
+      if (match) highlightDriver(match.abbr || match.abbreviation);
+    }
+
+    // ========================================================================
+    // F1 - LAP TIMES CHART
+    // ========================================================================
+    function drawLapTimes() {
+      const canvas = document.getElementById('f1LapTimesCanvas');
       if (!canvas) return;
+      const rect = canvas.parentElement?.getBoundingClientRect();
+      if (rect && rect.width > 100) {
+        canvas.width = Math.floor(rect.width);
+        canvas.height = 400;
+      }
+
       const ctx = canvas.getContext('2d');
       const w = canvas.width, h = canvas.height;
-      const tel = data.telemetry || {};
-      const drivers = Object.keys(tel);
-      if (!drivers.length) return;
+      const data = f1State.lapsData || f1State.raceData;
+      if (!data?.laps) {
+        ctx.fillStyle = '#888'; ctx.font = '14px Inter'; ctx.textAlign = 'center';
+        ctx.fillText('No lap data available.', w/2, h/2);
+        return;
+      }
 
-      // Draw 3 sub-charts: Speed, Throttle, Brake
+      const drivers = data.drivers || (data.results || []).map(r => ({
+        abbr: r.abbreviation || '', color: r.team_color || r.color || '#fff'
+      }));
+      const driverMap = {};
+      for (const d of drivers) driverMap[d.abbr] = d;
+
+      const showPits = document.getElementById('lt-show-pits')?.checked;
+      const showDeleted = document.getElementById('lt-show-deleted')?.checked;
+      const searchQuery = document.getElementById('lt-driver-search')?.value?.toUpperCase() || '';
+
+      // Filter laps
+      let laps = data.laps.filter(l => l.lap_time_ms && l.lap_time_ms > 0);
+      if (!showPits) laps = laps.filter(l => !l.pit_in && !l.pit_out);
+      if (!showDeleted) laps = laps.filter(l => !l.deleted);
+
+      // Filter drivers
+      let activeDrivers = drivers;
+      if (searchQuery) {
+        activeDrivers = drivers.filter(d => d.abbr.includes(searchQuery));
+      }
+      if (replay.highlightedDriver) {
+        activeDrivers = drivers.filter(d => d.abbr === replay.highlightedDriver);
+      }
+
+      const activeAbbrs = new Set(activeDrivers.map(d => d.abbr));
+      laps = laps.filter(l => activeAbbrs.has(l.driver));
+
+      if (!laps.length) {
+        ctx.fillStyle = '#0a0a0f'; ctx.fillRect(0,0,w,h);
+        ctx.fillStyle = '#888'; ctx.font = '14px Inter'; ctx.textAlign = 'center';
+        ctx.fillText('No laps match filters.', w/2, h/2);
+        return;
+      }
+
+      const pad = {t:30, r:30, b:30, l:70};
+      const minTime = Math.min(...laps.map(l => l.lap_time_ms)) * 0.998;
+      const maxTime = Math.max(...laps.map(l => l.lap_time_ms)) * 1.002;
+      const maxLap = Math.max(...laps.map(l => l.lap));
+
+      ctx.fillStyle = '#0a0a0f'; ctx.fillRect(0,0,w,h);
+
+      // Y axis labels
+      const timeRange = maxTime - minTime || 1;
+      for (let i = 0; i <= 5; i++) {
+        const t = minTime + (i/5) * timeRange;
+        const y = pad.t + ((t - minTime) / timeRange) * (h - pad.t - pad.b);
+        ctx.fillStyle = '#555'; ctx.font = '10px Inter'; ctx.textAlign = 'right';
+        ctx.fillText(msToLapTime(t), pad.l - 8, y + 4);
+        ctx.strokeStyle = 'rgba(255,255,255,0.03)'; ctx.beginPath();
+        ctx.moveTo(pad.l, y); ctx.lineTo(w-pad.r, y); ctx.stroke();
+      }
+
+      // Plot points
+      for (const l of laps) {
+        const x = pad.l + ((l.lap - 1) / maxLap) * (w - pad.l - pad.r);
+        const y = pad.t + ((l.lap_time_ms - minTime) / timeRange) * (h - pad.t - pad.b);
+        const color = driverMap[l.driver]?.color || '#fff';
+        ctx.fillStyle = hexToRGBA(color, l.is_personal_best ? 1 : 0.6);
+        const radius = l.is_personal_best ? 4 : 2.5;
+        ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // Store for hover
+      canvas._lapsData = laps;
+      canvas._lapsDriverMap = driverMap;
+      canvas._lapsPad = pad;
+      canvas._lapsMinTime = minTime;
+      canvas._lapsTimeRange = timeRange;
+      canvas._lapsMaxLap = maxLap;
+
+      // Hover handler
+      if (!canvas._ltHoverAttached) {
+        canvas._ltHoverAttached = true;
+        canvas.addEventListener('mousemove', (e) => {
+          const tooltip = document.getElementById('f1-laptimes-tooltip');
+          if (!tooltip || !canvas._lapsData) return;
+          const rect = canvas.getBoundingClientRect();
+          const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+          const p = canvas._lapsPad;
+          let closest = null, closestDist = 20;
+          for (const l of canvas._lapsData) {
+            const x = p.l + ((l.lap - 1) / canvas._lapsMaxLap) * (canvas.width - p.l - p.r);
+            const y = p.t + ((l.lap_time_ms - canvas._lapsMinTime) / canvas._lapsTimeRange) * (canvas.height - p.t - p.b);
+            const dist = Math.sqrt((mx-x)**2 + (my-y)**2);
+            if (dist < closestDist) { closestDist = dist; closest = l; }
+          }
+          if (closest) {
+            tooltip.style.display = 'block';
+            tooltip.style.left = (e.clientX - rect.left + 10) + 'px';
+            tooltip.style.top = (e.clientY - rect.top - 10) + 'px';
+            tooltip.innerHTML = `<strong>${closest.driver}</strong> Lap ${closest.lap}<br>${closest.lap_time}<br>${closest.compound} · Tyre age ${closest.tyre_life}<br>S1: ${closest.sector1||'—'} S2: ${closest.sector2||'—'} S3: ${closest.sector3||'—'}`;
+          } else {
+            tooltip.style.display = 'none';
+          }
+        });
+        canvas.addEventListener('mouseleave', () => {
+          const tooltip = document.getElementById('f1-laptimes-tooltip');
+          if (tooltip) tooltip.style.display = 'none';
+        });
+      }
+    }
+
+    // ========================================================================
+    // F1 - TELEMETRY COMPARE
+    // ========================================================================
+    function renderTelemetrySelectors(year, round) {
+      const controls = document.getElementById('f1-telemetry-controls');
+      if (!controls || !f1State.telemetryIndex) return;
+
+      const drivers = f1State.telemetryIndex.drivers || [];
+      const lapsByDriver = f1State.telemetryIndex.laps_by_driver || {};
+      const presets = f1State.telemetryIndex.presets || {};
+
+      let html = '<div class="f1-tel-selectors">';
+      html += '<div class="f1-tel-select"><label>Driver A</label><select id="tel-driver-a" onchange="updateTelDriverLaps(\'a\')">';
+      for (const d of drivers) html += `<option value="${d}">${d}</option>`;
+      html += '</select><select id="tel-lap-a"></select></div>';
+      html += '<div class="f1-tel-select"><label>Driver B</label><select id="tel-driver-b" onchange="updateTelDriverLaps(\'b\')">';
+      html += '<option value="">— None —</option>';
+      for (const d of drivers) html += `<option value="${d}">${d}</option>`;
+      html += '</select><select id="tel-lap-b"></select></div>';
+
+      html += '<div class="f1-tel-presets">';
+      for (const fl of (presets.fastest_laps || [])) {
+        html += `<button class="f1-preset-btn" onclick="loadTelPreset('${fl.driver}',${fl.lap})">${fl.driver} FL</button>`;
+      }
+      html += '</div>';
+      html += '<button class="f1-tel-load-btn" onclick="loadTelemetry()">Load Telemetry</button>';
+      html += '</div>';
+      controls.innerHTML = html;
+
+      // Init lap dropdowns
+      updateTelDriverLaps('a');
+      updateTelDriverLaps('b');
+    }
+
+    function updateTelDriverLaps(side) {
+      const driverSelect = document.getElementById(`tel-driver-${side}`);
+      const lapSelect = document.getElementById(`tel-lap-${side}`);
+      if (!driverSelect || !lapSelect || !f1State.telemetryIndex) return;
+      const driver = driverSelect.value;
+      const laps = f1State.telemetryIndex.laps_by_driver?.[driver] || [];
+      lapSelect.innerHTML = laps.map(l => `<option value="${l}">${l}</option>`).join('');
+    }
+
+    function loadTelPreset(driver, lap) {
+      const dd = document.getElementById('tel-driver-a');
+      const ld = document.getElementById('tel-lap-a');
+      if (dd) dd.value = driver;
+      updateTelDriverLaps('a');
+      if (ld) ld.value = lap;
+    }
+
+    async function loadTelemetry() {
+      const dA = document.getElementById('tel-driver-a')?.value;
+      const lA = parseInt(document.getElementById('tel-lap-a')?.value);
+      const dB = document.getElementById('tel-driver-b')?.value || null;
+      const lB = parseInt(document.getElementById('tel-lap-b')?.value) || null;
+
+      if (!dA || !lA) return;
+
+      const y = f1State.year ?? f1State.raceData?.year ?? 2026;
+      const r = f1State.round ?? f1State.raceData?.round ?? 1;
+
+      telState.driverA = dA; telState.lapA = lA;
+      telState.driverB = dB; telState.lapB = lB;
+
+      // Fetch telemetry A
+      const cacheKeyA = `${dA}_${lA}`;
+      if (!f1State.telemetryCache[cacheKeyA]) {
+        try {
+          const res = await fetch(`/api/f1/race/${y}/${r}/telemetry?driver=${dA}&lap=${lA}`);
+          if (res.ok) {
+            f1State.telemetryCache[cacheKeyA] = await res.json();
+          } else if (res.status === 404) {
+            alert('Selected telemetry is not cached for this race yet.');
+          }
+        } catch (e) {
+          console.warn('telemetry fetch failed', e);
+        }
+      }
+      telState.dataA = f1State.telemetryCache[cacheKeyA] || null;
+
+      // Fetch telemetry B
+      if (dB && lB) {
+        const cacheKeyB = `${dB}_${lB}`;
+        if (!f1State.telemetryCache[cacheKeyB]) {
+          try {
+            const res = await fetch(`/api/f1/race/${y}/${r}/telemetry?driver=${dB}&lap=${lB}`);
+            if (res.ok) {
+              f1State.telemetryCache[cacheKeyB] = await res.json();
+            } else if (res.status === 404) {
+              alert('Selected comparison telemetry is not cached for this race yet.');
+            }
+          } catch (e) {
+            console.warn('comparison telemetry fetch failed', e);
+          }
+        }
+        telState.dataB = f1State.telemetryCache[cacheKeyB] || null;
+      } else {
+        telState.dataB = null;
+      }
+
+      drawTelemetryChart();
+    }
+
+    function drawTelemetryChart() {
+      const canvas = document.getElementById('f1TelCanvas');
+      if (!canvas) return;
+      const rect = canvas.parentElement?.getBoundingClientRect();
+      if (rect && rect.width > 100) {
+        canvas.width = Math.floor(rect.width);
+        canvas.height = 500;
+      }
+
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      const dataA = telState.dataA;
+      const dataB = telState.dataB;
+
+      if (!dataA?.samples?.length) {
+        ctx.fillStyle = '#0a0a0f'; ctx.fillRect(0,0,w,h);
+        ctx.fillStyle = '#888'; ctx.font = '14px Inter'; ctx.textAlign = 'center';
+        ctx.fillText('Select a driver and lap, then click "Load Telemetry".', w/2, h/2);
+        return;
+      }
+
       const charts = [
-        { key: 'speed', label: 'Speed (km/h)', color: '#00e5ff', min: 0, max: 360 },
+        { key: 'speed', label: 'Speed (km/h)', color: '#00e5ff', min: 0, max: 370 },
         { key: 'throttle', label: 'Throttle (%)', color: '#76ff03', min: 0, max: 110 },
         { key: 'brake', label: 'Brake', color: '#ff4757', min: 0, max: 1 },
+        { key: 'gear', label: 'Gear', color: '#ffd600', min: 0, max: 9 },
       ];
-      const chartH = (h - 40) / 3;
+      const chartH = (h - 40) / charts.length;
       const pad = {l:60, r:20, t:30, b:5};
 
       ctx.fillStyle = '#0a0a0f'; ctx.fillRect(0,0,w,h);
+
+      const colorA = '#00e5ff';
+      const colorB = '#ff4757';
 
       charts.forEach((chart, ci) => {
         const cy = pad.t + ci * chartH;
         const ch = chartH - pad.t - pad.b;
 
         // Label
-        ctx.fillStyle = chart.color; ctx.font = 'bold 11px Inter,sans-serif'; ctx.textAlign = 'left';
+        ctx.fillStyle = chart.color; ctx.font = 'bold 11px Inter'; ctx.textAlign = 'left';
         ctx.fillText(chart.label, pad.l, cy + 14);
 
         // Grid
-        ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
         ctx.beginPath(); ctx.moveTo(pad.l, cy+ch); ctx.lineTo(w-pad.r, cy+ch); ctx.stroke();
 
-        // Draw each driver's data
-        drivers.forEach((driver, di) => {
-          const driverData = tel[driver];
-          const vals = driverData[chart.key] || [];
-          if (!vals.length) return;
-          const driverInfo = (data.results || []).find(r => r.abbreviation === driver);
-          const color = driverInfo?.color || ['#00e5ff','#76ff03','#e040fb'][di] || '#fff';
-          ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath();
-          const maxVal = chart.max || Math.max(...vals) * 1.1;
-          vals.forEach((v, i) => {
-            const x = pad.l + (i / (vals.length-1)) * (w - pad.l - pad.r);
-            const y = cy + ch - ((chart.key === 'brake' ? (v ? 1 : 0) : v) / maxVal) * ch;
-            if (i === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-          });
-          ctx.stroke();
-        });
+        // Draw trace A
+        drawTelTrace(ctx, dataA.samples, chart, cy, ch, w, pad, colorA);
+        // Draw trace B
+        if (dataB?.samples?.length) {
+          drawTelTrace(ctx, dataB.samples, chart, cy, ch, w, pad, colorB);
+        }
       });
+
+      // Cursor line
+      if (telState.cursorIdx >= 0 && dataA.samples[telState.cursorIdx]) {
+        const x = pad.l + (telState.cursorIdx / (dataA.samples.length - 1)) * (w - pad.l - pad.r);
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+        ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, h); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Legend
+      let legend = `<span style="color:${colorA}">● ${telState.driverA} Lap ${telState.lapA}</span>`;
+      if (dataB) legend += ` <span style="color:${colorB}">● ${telState.driverB} Lap ${telState.lapB}</span>`;
+      ctx.fillStyle = '#fff'; ctx.font = '11px Inter'; ctx.textAlign = 'right';
+      ctx.fillText(legend.replace(/<[^>]*>/g, ''), w - pad.r, pad.t + 14);
+
+      // Hover handler
+      if (!canvas._telHoverAttached) {
+        canvas._telHoverAttached = true;
+        canvas.addEventListener('mousemove', (e) => {
+          if (!telState.dataA?.samples) return;
+          const rect = canvas.getBoundingClientRect();
+          const mx = e.clientX - rect.left;
+          const idx = Math.round(((mx - 60) / (canvas.width - 80)) * (telState.dataA.samples.length - 1));
+          if (idx >= 0 && idx < telState.dataA.samples.length) {
+            telState.cursorIdx = idx;
+            drawTelemetryChart();
+            // Sync track map dot
+            drawTrackMap();
+          }
+        });
+      }
     }
 
-    // === INIT ===
+    function drawTelTrace(ctx, samples, chart, cy, ch, w, pad, color) {
+      const maxVal = chart.max || Math.max(...samples.map(s => s[chart.key] || 0)) * 1.1 || 1;
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath();
+      for (let i = 0; i < samples.length; i++) {
+        const x = pad.l + (i / (samples.length - 1)) * (w - pad.l - pad.r);
+        let v = samples[i][chart.key] || 0;
+        if (chart.key === 'brake') v = v ? 1 : 0;
+        const y = cy + ch - (v / maxVal) * ch;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // ========================================================================
+    // F1 - TRACK MAP
+    // ========================================================================
+    function drawTrackMap() {
+      const canvas = document.getElementById('f1TrackCanvas');
+      if (!canvas) return;
+      const rect = canvas.parentElement?.getBoundingClientRect();
+      if (rect && rect.width > 100) {
+        const size = Math.min(rect.width, 600);
+        canvas.width = size;
+        canvas.height = size;
+      }
+
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      const map = f1State.trackMapData;
+
+      ctx.fillStyle = '#0a0a0f'; ctx.fillRect(0,0,w,h);
+
+      if (!map?.points?.length) {
+        ctx.fillStyle = '#888'; ctx.font = '14px Inter'; ctx.textAlign = 'center';
+        ctx.fillText('Track map not available.', w/2, h/2);
+        return;
+      }
+
+      const points = map.points;
+      const xs = points.map(p => p.x), ys = points.map(p => p.y);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+      const rangeX = maxX - minX || 1, rangeY = maxY - minY || 1;
+      const scale = Math.min((w - 80) / rangeX, (h - 80) / rangeY);
+      const offX = (w - rangeX * scale) / 2;
+      const offY = (h - rangeY * scale) / 2;
+
+      function mapX(x) { return offX + (x - minX) * scale; }
+      function mapY(y) { return offY + (y - minY) * scale; }
+
+      // Draw track outline
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (let i = 0; i < points.length; i++) {
+        const px = mapX(points[i].x), py = mapY(points[i].y);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+
+      // Draw colored speed overlay
+      if (points[0].speed !== undefined) {
+        for (let i = 1; i < points.length; i++) {
+          const speed = points[i].speed || 0;
+          const t = Math.min(speed / 350, 1);
+          const r = Math.round(255 * (1 - t)), g = Math.round(255 * t);
+          ctx.strokeStyle = `rgb(${r},${g},50)`; ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.moveTo(mapX(points[i-1].x), mapY(points[i-1].y));
+          ctx.lineTo(mapX(points[i].x), mapY(points[i].y));
+          ctx.stroke();
+        }
+      }
+
+      // Draw corners
+      for (const c of (map.corners || [])) {
+        const cx = mapX(c.x), cy = mapY(c.y);
+        ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = 'bold 10px Inter'; ctx.textAlign = 'center';
+        ctx.fillText(c.number || '', cx, cy - 8);
+      }
+
+      // Draw car dot at cursor position
+      if (telState.dataA?.samples?.length && telState.cursorIdx >= 0) {
+        const sample = telState.dataA.samples[telState.cursorIdx];
+        if (sample.x !== undefined && sample.y !== undefined) {
+          const dx = mapX(sample.x), dy = mapY(sample.y);
+          ctx.fillStyle = '#00e5ff'; ctx.beginPath(); ctx.arc(dx, dy, 6, 0, Math.PI*2); ctx.fill();
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+        }
+      }
+      if (telState.dataB?.samples?.length && telState.cursorIdx >= 0) {
+        const sample = telState.dataB.samples[telState.cursorIdx];
+        if (sample.x !== undefined && sample.y !== undefined) {
+          const dx = mapX(sample.x), dy = mapY(sample.y);
+          ctx.fillStyle = '#ff4757'; ctx.beginPath(); ctx.arc(dx, dy, 6, 0, Math.PI*2); ctx.fill();
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+        }
+      }
+    }
+
+    let trackPlayTimer = null;
+    let trackPlaying = false;
+    function toggleTrackPlay() {
+      if (trackPlaying) { trackPlaying = false; if(trackPlayTimer) clearInterval(trackPlayTimer); const btn=document.getElementById('track-play'); if(btn) btn.textContent='▶ Play'; return; }
+      trackPlaying = true;
+      const btn = document.getElementById('track-play'); if(btn) btn.textContent='⏸ Pause';
+      const scrubber = document.getElementById('track-scrubber');
+      trackPlayTimer = setInterval(() => {
+        const samples = telState.dataA?.samples;
+        if (!samples) { trackPlaying = false; clearInterval(trackPlayTimer); return; }
+        telState.cursorIdx = (telState.cursorIdx + 1) % samples.length;
+        if (scrubber) scrubber.value = Math.round((telState.cursorIdx / (samples.length - 1)) * 100);
+        drawTrackMap();
+        drawTelemetryChart();
+      }, 50);
+    }
+    function resetTrackPlay() {
+      trackPlaying = false; if(trackPlayTimer) clearInterval(trackPlayTimer);
+      telState.cursorIdx = 0;
+      const scrubber = document.getElementById('track-scrubber'); if(scrubber) scrubber.value = 0;
+      drawTrackMap();
+    }
+    function scrubTrack(val) {
+      const samples = telState.dataA?.samples;
+      if (!samples) return;
+      telState.cursorIdx = Math.round((val / 100) * (samples.length - 1));
+      drawTrackMap();
+      drawTelemetryChart();
+    }
+    function stopTelPlayback() {
+      trackPlaying = false; if(trackPlayTimer) { clearInterval(trackPlayTimer); trackPlayTimer = null; }
+    }
+
+    // ========================================================================
+    // F1 - UTILITY
+    // ========================================================================
+    function hexToRGBA(hex, alpha) {
+      hex = hex.replace('#','');
+      if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+      const r = parseInt(hex.substring(0,2), 16);
+      const g = parseInt(hex.substring(2,4), 16);
+      const b = parseInt(hex.substring(4,6), 16);
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+
+    function msToLapTime(ms) {
+      const total = ms / 1000;
+      const mins = Math.floor(total / 60);
+      const secs = (total % 60).toFixed(3);
+      return `${mins}:${secs.padStart(6,'0')}`;
+    }
+
+    // ========================================================================
+    // INIT
+    // ========================================================================
     document.getElementById('updateTime').textContent = 'Updated ' + new Date().toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}).toUpperCase() + ' · ' + new Date().toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit'});
     loadMatches(); setInterval(loadMatches, 30000);
     loadF1();
