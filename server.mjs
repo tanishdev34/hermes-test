@@ -73,6 +73,12 @@ async function espnFetch(path) {
   }
 }
 
+function normalizeScore(score) {
+  if (score === null || score === undefined || score === '') return null;
+  const parsed = Number(score);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function mapEvent(e) {
   const comp = e.competitions?.[0] || {};
   const teams = comp.competitors || [];
@@ -96,14 +102,14 @@ function mapEvent(e) {
       id: home.id,
       name: home.team?.displayName || '',
       shortName: home.team?.abbreviation || '',
-      score: home.score ?? null,
+      score: normalizeScore(home.score),
       logo: home.team?.logo || '',
     },
     away: {
       id: away.id,
       name: away.team?.displayName || '',
       shortName: away.team?.abbreviation || '',
-      score: away.score ?? null,
+      score: normalizeScore(away.score),
       logo: away.team?.logo || '',
     },
     group: e.season?.slug || '',

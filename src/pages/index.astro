@@ -117,8 +117,7 @@ import Layout from '../layouts/Layout.astro';
           if (upcoming.length > 3) html += `<a href="/matches" class="view-all-link">View all ${upcoming.length} upcoming →</a>`;
         }
         container.innerHTML = html;
-        // Update stats
-        const goals = matches.reduce((s, m) => s + (m.home.score || 0) + (m.away.score || 0), 0);
+        const goals = matches.reduce((s, m) => s + Number(m.home.score ?? 0) + Number(m.away.score ?? 0), 0);
         const allTeams = new Set(); matches.forEach(m => { allTeams.add(m.home.name); allTeams.add(m.away.name); });
         const el = id => document.getElementById(id);
         if (el('stat-games')) el('stat-games').textContent = finished.length;
