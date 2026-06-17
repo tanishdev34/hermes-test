@@ -22,7 +22,8 @@ import Layout from '../layouts/Layout.astro';
     <div class="section-header">
       <div class="section-num">01</div>
       <h2 class="section-title">⚽ World Cup 2026</h2>
-      <p class="section-desc">Live matches pinned to top. Click any match for details.</p>
+      <p class="section-desc">Live matches pinned to top. Click any match for details, live commentary, and AI-monitored email alerts.</p>
+      <div id="footballAlertStatus" class="match-section-label" style="margin-top:0.6rem">AI live alert monitor: checking…</div>
     </div>
     <div class="match-list" id="matchesList">
       <div class="loading"><span class="pulse-dot"></span> Loading matches...</div>
@@ -86,7 +87,7 @@ import Layout from '../layouts/Layout.astro';
       if (m.status === 'finished') scoreClass = m.home.score === m.away.score ? 'score-draw' : 'score-win';
       const statusIcon = isLive ? '<span class="live-badge"><span class="live-dot"></span> LIVE</span>' : '';
       const timeBadge = m.status === 'upcoming' ? `<div class="match-time-badge">${dateStr} · ${m.statusDetail || ''}</div>` : '';
-      const matchData = JSON.stringify({home: homeName, away: awayName, homeScore: m.home.score, awayScore: m.away.score, date: dateStr, venue: m.venue, statusDetail: m.statusDetail}).replace(/'/g,"&#39;");
+      const matchData = JSON.stringify({home: homeName, away: awayName, homeScore: m.home.score, awayScore: m.away.score, date: dateStr, venue: m.venue, statusDetail: m.statusDetail, status: m.status}).replace(/'/g,"&#39;");
       return `<div class="match-card match-group-a clickable" data-match-id="${m.id}" data-match='${matchData}' onclick="openMatch(${m.id})">
         ${statusIcon}
         <div class="match-teams">
@@ -133,6 +134,24 @@ import Layout from '../layouts/Layout.astro';
       } catch (e) { container.innerHTML = '<p style="color:var(--text-muted)">Failed to load matches.</p>'; }
     }
 
+    async function loadAlertStatus() {
+      const el = document.getElementById('footballAlertStatus');
+      if (!el) return;
+      try {
+        const res = await fetch('/api/alerts/status');
+        const data = await res.json();
+        if (!data.enabled) {
+          el.textContent = 'AI live alert monitor: disabled';
+          return;
+        }
+        const source = data.freeCommentarySource || 'ESPN commentary';
+        const last = data.lastEmailAt ? ` · last mail ${new Date(data.lastEmailAt).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}` : '';
+        el.textContent = `AI live alert monitor: ON · free source ${source} · live matches ${data.liveMatches}${last}`;
+      } catch {
+        el.textContent = 'AI live alert monitor: unavailable';
+      }
+    }
+
     // === MATCH MODAL ===
     function openMatch(id) {
       const modal = document.getElementById('matchModal');
@@ -141,7 +160,8 @@ import Layout from '../layouts/Layout.astro';
       body.innerHTML = '<div class="loading"><span class="pulse-dot"></span> Loading...</div>';
       const card = document.querySelector(`[data-match-id="${id}"]`);
       const info = card ? JSON.parse(card.dataset.match || '{}') : {};
-      fetch(`/api/match/${id}`).then(r => r.json()).then(detail => {
+      const query = info.status === 'live' ? '?live=1' : '';
+      fetch(`/api/match/${id}${query}`).then(r => r.json()).then(detail => {
         if (detail.error) { body.innerHTML = '<p style="padding:2rem;color:var(--text-muted)">No details available.</p>'; return; }
         body.innerHTML = renderMatchDetail(info, detail);
         setupTabs();
@@ -160,16 +180,18 @@ import Layout from '../layouts/Layout.astro';
         </div>
         ${info.venue ? `<div class="modal-venue">📍 ${info.venue}</div>` : ''}
       </div>`;
-      const hasE = d.events?.length > 0, hasL = d.lineups?.length > 0, hasS = d.stats?.length > 0;
-      if (hasE || hasL || hasS) {
+      const hasE = d.events?.length > 0, hasL = d.lineups?.length > 0, hasS = d.stats?.length > 0, hasC = d.commentary?.length > 0;
+      if (hasE || hasL || hasS || hasC) {
         html += `<div class="modal-tabs">
           ${hasE ? '<button class="modal-tab active" data-tab="events">⚽ Events</button>' : ''}
-          ${hasL ? '<button class="modal-tab' + (!hasE ? ' active' : '') + '" data-tab="lineup">👥 Lineups</button>' : ''}
-          ${hasS ? '<button class="modal-tab' + (!hasE && !hasL ? ' active' : '') + '" data-tab="stats">📊 Stats</button>' : ''}
+          ${hasC ? '<button class="modal-tab' + (!hasE ? ' active' : '') + '" data-tab="commentary">🗣️ Commentary</button>' : ''}
+          ${hasL ? '<button class="modal-tab' + (!hasE && !hasC ? ' active' : '') + '" data-tab="lineup">👥 Lineups</button>' : ''}
+          ${hasS ? '<button class="modal-tab' + (!hasE && !hasL && !hasC ? ' active' : '') + '" data-tab="stats">📊 Stats</button>' : ''}
         </div>`;
         if (hasE) html += renderEvents(d.events);
-        if (hasL) html += renderLineups(d.lineups);
-        if (hasS) html += renderStats(d.stats);
+        if (hasC) html += renderCommentary(d.commentary, !hasE);
+        if (hasL) html += renderLineups(d.lineups, !hasE && !hasC);
+        if (hasS) html += renderStats(d.stats, !hasE && !hasL && !hasC);
       } else {
         html += '<p style="text-align:center;color:var(--text-muted);padding:2rem;">No detailed data available yet.</p>';
       }
@@ -183,8 +205,16 @@ import Layout from '../layouts/Layout.astro';
       }
       return html + '</div></div>';
     }
-    function renderLineups(lineups) {
-      let html = '<div class="tab-panel" id="tab-lineup">';
+    function renderCommentary(commentary, active = false) {
+      const panelClass = active ? 'tab-panel active' : 'tab-panel';
+      let html = `<div class="${panelClass}" id="tab-commentary"><div class="event-list">`;
+      for (const item of commentary.slice().reverse()) {
+        html += `<div class="event-row"><span class="event-time">${item.time || 'Live'}</span><span class="event-icon">🗣️</span><div class="event-detail"><div class="event-desc">${item.text}</div></div></div>`;
+      }
+      return html + '</div></div>';
+    }
+    function renderLineups(lineups, active = false) {
+      let html = `<div class="${active ? 'tab-panel active' : 'tab-panel'}" id="tab-lineup">`;
       for (const l of lineups) {
         html += `<div class="lineup-section"><div class="lineup-team-header"><span class="lineup-team-name">${getFlag(l.team)} ${l.team||l.teamAbbr}</span><span class="lineup-formation">${l.formation||''}</span></div><div class="lineup-grid">`;
         for (const p of (l.xi||[])) html += `<div class="player-row"><span class="player-number">${p.number}</span><span class="player-name">${p.name}</span><span class="player-pos">${p.pos}</span></div>`;
@@ -194,10 +224,10 @@ import Layout from '../layouts/Layout.astro';
       }
       return html + '</div>';
     }
-    function renderStats(statsArr) {
+    function renderStats(statsArr, active = false) {
       if (!statsArr || statsArr.length < 2) return '';
       const s0 = statsArr[0].stats||{}, s1 = statsArr[1].stats||{}, n0 = statsArr[0].team||'Home', n1 = statsArr[1].team||'Away';
-      let html = '<div class="tab-panel" id="tab-stats"><div class="stats-grid">';
+      let html = `<div class="${active ? 'tab-panel active' : 'tab-panel'}" id="tab-stats"><div class="stats-grid">`;
       for (const key of Object.keys(s0)) {
         const v0 = parseFloat(s0[key])||0, v1 = parseFloat(s1[key])||0, total = v0+v1||1;
         const p0 = Math.round((v0/total)*100), label = key.replace(/([A-Z])/g,' $1').replace(/^./,s=>s.toUpperCase());
@@ -1472,6 +1502,7 @@ import Layout from '../layouts/Layout.astro';
     // ========================================================================
     document.getElementById('updateTime').textContent = 'Updated ' + new Date().toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}).toUpperCase() + ' · ' + new Date().toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit'});
     loadMatches(); setInterval(loadMatches, 30000);
+    loadAlertStatus(); setInterval(loadAlertStatus, 60000);
     loadF1();
   </script>
 </Layout>

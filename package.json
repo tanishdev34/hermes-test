@@ -13,10 +13,13 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.4",
+    "@react-email/render": "^2.0.9",
     "@upstash/redis": "^1.38.0",
     "astro": "^6.4.6",
     "dotenv": "^17.4.2",
     "hono": "^4.12.25",
-    "pg": "^8.21.0"
+    "nodemailer": "^9.0.1",
+    "pg": "^8.21.0",
+    "react": "^19.2.7"
   }
 }
